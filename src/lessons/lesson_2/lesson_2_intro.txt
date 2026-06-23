@@ -1,0 +1,85 @@
+Welcome back, pilot ... to the typefighter training program.
+
+You survived your first simulation, and you learned your keyboard launch position:
+the home row.
+
+Last time, your focus was on the F and J keys. Those were your navigation beacons.
+Your pointer fingers used them to find the home row without looking down.
+
+Today, we are expanding your control panel.
+
+Your new mission keys are D, K, and ␣.
+
+The D key belongs to your left middle finger.
+The K key belongs to your right middle finger.
+The ␣ belongs to your thumbs. Use whichever thumb feels natural and steady.
+
+That means your left middle finger should rest on D.
+And your right middle finger should rest on K.
+
+Do not move your whole hand to reach them.
+Do not look down to find them.
+Your hands should already be sitting on the home row.
+
+On your left hand:
+Your pinky rests on A.
+Your ring finger rests on S.
+Your middle finger rests on D.
+Your pointer finger rests on F.
+
+On your right hand:
+Your pointer finger rests on J.
+Your middle finger rests on K.
+Your ring finger rests on L.
+Your pinky rests on the semicolon key.
+
+Now check your formation.
+
+Left middle finger on D.
+Right middle finger on K.
+Either thumb ready over the ␣.
+
+Feel where your pointer fingers are on F and J.
+Use those raised bumps to confirm your hands are still locked into the home row.
+
+That is important, pilot.
+
+Your middle fingers should move only when it is time to press D or K.
+After pressing the key, they return to their home row positions.
+
+Press D with your left middle finger.
+Then return that finger to D.
+
+Press K with your right middle finger.
+Then return that finger to K.
+
+Press ␣ with either thumb.
+Then let that thumb float back to ready position.
+
+This is how real typing control is built:
+small movements, steady hands, eyes forward.
+
+If you look down, you break your scan.
+If you move your whole hand, you lose your launch position.
+If you trust the home row, your fingers will know where to go.
+
+In this mission, enemy drones will carry D, K, or ␣.
+When you see D, press D with your left middle finger.
+When you see K, press K with your right middle finger.
+When you see ␣, press the ␣ with either thumb.
+
+Keep your pointer fingers near F and J.
+Keep your middle fingers ready on D and K.
+Keep one thumb ready for ␣.
+Keep your eyes on the screen.
+
+Before you launch, place both hands on the home row.
+Make sure your left middle finger is resting on D.
+Make sure your right middle finger is resting on K.
+Make sure either thumb can reach the ␣ without moving your whole hand.
+
+Once your hands are locked into position, it is time for eyes forward.
+
+No looking down until the lesson is complete.
+
+To launch the training simulation, use either thumb to press the ␣.
