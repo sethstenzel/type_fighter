@@ -1,0 +1,25 @@
+Welcome back, pilot ... lesson 6 is ready.
+
+Your new training keys are R and U.
+
+These keys use: Left index, right index.
+
+You are not starting over. Every key from the earlier lessons is still part of your control panel.
+Your job is to add these two new keys while keeping your hands anchored and your eyes forward.
+
+Before launch, place both hands on the home row.
+Find F and J by touch if you need to reset your position.
+Then prepare the fingers for R and U.
+
+When a drone shows one of the new keys, press it with the correct finger.
+When a drone shows a key from an earlier lesson, use the finger you already trained.
+After every key press, return to your ready position.
+
+Do not chase the keyboard with your whole hand.
+Do not look down if you can help it.
+Small movements, steady hands, eyes forward.
+
+In this mission, drones may use all keys you have learned so far, with extra focus on R and U.
+Stay calm, read the drone, press the key, and get back to ready position.
+
+To launch the training simulation, use either thumb to press the ␣.

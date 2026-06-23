@@ -1,0 +1,22 @@
+Ok rookie... lesson 10 starts now.
+
+Your training pod will be at the center of the screen.
+Enemy drones will appear and move toward your pod.
+
+This mission adds T and Y.
+Main fingers: Left index, right index.
+
+Drones can use the keys from this lesson and the keys you have already learned.
+Press the matching key to fire at the drone.
+
+Some drones take more than one shot to destroy.
+
+Shield training begins in this mission.
+
+Your pod starts with three shield charges. If a drone reaches your pod, one shield charge blocks the hit before you lose a life.
+
+The shield bar appears under the mega shot bar. One shield charge recharges every 20 seconds.
+
+Keep your hands anchored, press with the correct finger, and return to ready position after every shot.
+
+Here they come!
