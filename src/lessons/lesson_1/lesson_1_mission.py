@@ -100,6 +100,7 @@ class Drone:
     next_shot_time: int = 0
     rotation: float = 0
     incoming_damage: int = 0
+    level_value: float = 1.0
     target_pos: pygame.Vector2 | None = None
     is_drifting: bool = False
     strafe_axis: pygame.Vector2 | None = None
@@ -249,7 +250,7 @@ def screen_center(screen):
 
 
 def difficulty_tier(destroyed):
-    return destroyed // KILLS_PER_DIFFICULTY_TIER
+    return int(destroyed) // KILLS_PER_DIFFICULTY_TIER
 
 
 def lesson_drone_target(lesson_number):
@@ -300,6 +301,10 @@ def mini_boss_numbers_for_lesson(lesson_number, drone_target):
 
 def active_mini_boss_count(drones):
     return sum(1 for drone in drones if drone.is_mega)
+
+
+def drone_counts_for_level(drone):
+    return drone.level_value > 0
 
 
 def random_spawn_interval():
@@ -399,6 +404,7 @@ def split_regular_drone(drones, drone):
             max_hp=child_hp,
             radius=drone_radius_for_hp(child_hp),
             speed=drone.speed * random.uniform(0.96, 1.08),
+            level_value=drone.level_value / 2,
         )
         drones.append(child)
 
@@ -643,6 +649,7 @@ def fire_mega_drone(drones, boss, center, valid_keys):
             radius=MINI_BOSS_SHOT_RADIUS,
             speed=BOSS_SHOT_SPEED,
             is_boss_shot=True,
+            level_value=0,
         )
     )
 
@@ -665,6 +672,7 @@ def fire_final_boss_drones(drones, final_boss, center, valid_keys, count=1):
                 radius=BOSS_SHOT_RADIUS,
                 speed=FINAL_BOSS_SHOT_SPEED,
                 is_boss_shot=True,
+                level_value=0,
             )
         )
 
@@ -854,7 +862,7 @@ def draw_player_shield_bar(screen, font, charges, enabled):
 
 def draw_hud(screen, font, destroyed, drone_target, score, lives):
     width, _ = screen.get_size()
-    left = f"Drones destroyed: {destroyed}/{drone_target}"
+    left = f"Drones destroyed: {int(destroyed)}/{drone_target}"
     right = f"Score: {score}"
     life = f"Lives: {lives}"
     screen.blit(font.render(left, True, TEXT_COLOR), (22, 18))
@@ -902,7 +910,7 @@ def draw_end_screen(screen, clock, won, destroyed, drone_target, score):
     title_font = pygame.font.SysFont("arial", 56, bold=True)
     body_font = pygame.font.SysFont("arial", 26)
     title = "MISSION COMPLETE" if won else "MISSION FAILED"
-    message = f"Drones destroyed: {min(destroyed, drone_target)}/{drone_target}    Score: {score}"
+    message = f"Drones destroyed: {int(min(destroyed, drone_target))}/{drone_target}    Score: {score}"
     prompt = "Press ␣ to return to the menu"
 
     while True:
@@ -1264,8 +1272,10 @@ def run_mission(screen, clock, base_dir, lesson_dir_name, valid_keys):
                     continue
                 if bullet.target.hp <= 0 and bullet.target in drones:
                     pos = bullet.target.pos.copy()
+                    counts_for_level = drone_counts_for_level(bullet.target)
                     drones.remove(bullet.target)
-                    destroyed += 1
+                    if counts_for_level:
+                        destroyed += bullet.target.level_value
                     score += 100
                     explode(particles, pos)
                     play_sound(explosion_sound)
@@ -1319,8 +1329,10 @@ def run_mission(screen, clock, base_dir, lesson_dir_name, valid_keys):
                         play_sound(split_sound)
                     elif target.hp <= 0:
                         pos = target.pos.copy()
+                        counts_for_level = drone_counts_for_level(target)
                         drones.remove(target)
-                        destroyed += 1
+                        if counts_for_level:
+                            destroyed += target.level_value
                         score += 100
                         explode(particles, pos)
                         play_sound(explosion_sound)

@@ -43,8 +43,11 @@ def _spacebar_surface(height, color, max_width=None):
         return _SPACEBAR_CACHE[cache_key]
 
     scaled = pygame.transform.smoothscale(raw, (width, height))
-    mask = pygame.mask.from_surface(scaled)
-    tinted = mask.to_surface(setcolor=tint, unsetcolor=(0, 0, 0, 0)).convert_alpha()
+    tinted = pygame.Surface((width, height), pygame.SRCALPHA).convert_alpha()
+    for py in range(height):
+        for px in range(width):
+            alpha = scaled.get_at((px, py)).a * tint[3] // 255
+            tinted.set_at((px, py), tint[:3] + (alpha,))
     _SPACEBAR_CACHE[cache_key] = tinted
     return tinted
 
