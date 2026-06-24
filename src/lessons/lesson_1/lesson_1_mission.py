@@ -307,6 +307,16 @@ def drone_counts_for_level(drone):
     return drone.level_value > 0
 
 
+def active_level_value(drones):
+    return sum(drone.level_value for drone in drones if drone_counts_for_level(drone))
+
+
+def should_spawn_mission_drone(lesson_number, spawned_count, destroyed, drones, drone_target):
+    if final_boss_enabled(lesson_number):
+        return spawned_count < drone_target
+    return spawned_count < drone_target or destroyed + active_level_value(drones) < drone_target
+
+
 def random_spawn_interval():
     drones_per_second = random.uniform(MIN_DRONE_SPAWN_RATE, MAX_DRONE_SPAWN_RATE)
     return int(1000 / drones_per_second)
@@ -1168,7 +1178,11 @@ def run_mission(screen, clock, base_dir, lesson_dir_name, valid_keys):
                 pending_shots.pop(0)
                 play_sound(laser_sound)
 
-        if final_boss is None and spawned_count < drone_target and now >= next_spawn_time:
+        if (
+            final_boss is None
+            and should_spawn_mission_drone(lesson_number, spawned_count, destroyed, drones, drone_target)
+            and now >= next_spawn_time
+        ):
             drone, spawned_count = spawn_next_drone(
                 drones,
                 screen,
