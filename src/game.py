@@ -1,5 +1,6 @@
 import importlib
 import json
+import math
 from pathlib import Path
 import re
 
@@ -11,6 +12,7 @@ from lessons.mission_engine import create_star_field, draw_star_field, update_st
 
 
 SCREEN_SIZE = (1024, 768)
+MIN_SCREEN_SIZE = (800, 600)
 WINDOW_FLAGS = pygame.RESIZABLE
 BG_COLOR = (8, 12, 24)
 TEXT_COLOR = (230, 238, 255)
@@ -20,10 +22,112 @@ LOCKED_SELECTED = (245, 203, 92)
 STARTING_LIVES = 3
 PLAYER_SHIELD_MAX_CHARGES = 3
 DEFAULT_POD = {"color": "blue", "type": "standard", "upgrades": []}
+UPGRADE_COLORS = (
+    ("Red", (219, 92, 101)),
+    ("Orange", (240, 158, 74)),
+    ("Yellow", (246, 216, 79)),
+    ("Green", (88, 214, 141)),
+    ("Teal", (72, 209, 204)),
+    ("Cyan", (116, 211, 255)),
+    ("Blue", (112, 170, 255)),
+    ("Indigo", (112, 118, 255)),
+    ("Purple", (153, 92, 214)),
+    ("Pink", (238, 111, 176)),
+    ("Rose", (244, 124, 143)),
+    ("Gold", (255, 184, 77)),
+)
+UPGRADE_CATALOG = (
+    {
+        "id": "extra_life",
+        "name": "Extra Life",
+        "cost": 50,
+        "repeatable": True,
+        "requirement": "Any rank",
+        "icon": "extra_life.png",
+    },
+    {
+        "id": "shield_charge",
+        "name": "Shield Charge",
+        "cost": 100,
+        "repeatable": True,
+        "requirement": "Unlock mission 7",
+        "min_unlocked": 7,
+        "icon": "extra_shields.png",
+    },
+    {
+        "id": "shield_charge_3",
+        "name": "Shield Charge x3",
+        "cost": 250,
+        "repeatable": True,
+        "requirement": "Unlock mission 7",
+        "min_unlocked": 7,
+        "icon": "extra_shields_3.png",
+    },
+    {
+        "id": "extra_shield_slot_1",
+        "name": "Extra Shield Slot 1",
+        "cost": 2000,
+        "repeatable": False,
+        "requirement": "Lieutenant rank",
+        "min_rank": "Lieutenant",
+        "icon": "extra_shield_slot_1.png",
+    },
+    {
+        "id": "extra_shield_slot_2",
+        "name": "Extra Shield Slot 2",
+        "cost": 4000,
+        "repeatable": False,
+        "requirement": "Captain rank",
+        "min_rank": "Captain",
+        "requires_upgrade": "extra_shield_slot_1",
+        "icon": "extra_shield_slot_2.png",
+    },
+    {
+        "id": "defense_drone",
+        "name": "Defense Drone",
+        "cost": 5000,
+        "repeatable": False,
+        "requirement": "Lieutenant rank",
+        "min_rank": "Lieutenant",
+        "icon": "defense_drone.png",
+    },
+    {
+        "id": "second_defense_drone",
+        "name": "Second Defense Drone",
+        "cost": 10000,
+        "repeatable": False,
+        "requirement": "Captain rank",
+        "min_rank": "Captain",
+        "requires_upgrade": "defense_drone",
+        "icon": "defense_drone.png",
+    },
+    {
+        "id": "drone_splash_color",
+        "name": "Drone Splash Color",
+        "cost": 250,
+        "repeatable": True,
+        "requirement": "Private rank",
+        "min_rank": "Private",
+        "color_choice": True,
+        "icon": "drone_splash_color.png",
+    },
+    {
+        "id": "ammo_charge_color",
+        "name": "Shot Charge Color",
+        "cost": 500,
+        "repeatable": True,
+        "requirement": "Lieutenant rank",
+        "min_rank": "Lieutenant",
+        "color_choice": True,
+        "icon": "shot_charge_color.png",
+    },
+)
+RANK_ORDER = ("Rookie", "Private", "Lieutenant", "Captain", "Major")
 
 BASE_DIR = Path(__file__).resolve().parent
 PLAYERS_PATH = BASE_DIR.parent / "players.json"
 is_fullscreen = True
+ui_image_cache = {}
 
 
 LESSONS = [
@@ -56,6 +160,44 @@ def draw_scrollbar(surface, track_rect, total_items, visible_items, first_visibl
     thumb_y = track_rect.y + int(travel * first_visible / max_first_visible)
     thumb_rect = pygame.Rect(track_rect.x + 2, thumb_y, track_rect.width - 4, thumb_height)
     pygame.draw.rect(surface, ACCENT, thumb_rect, border_radius=4)
+
+
+def normalize_pod_upgrades(upgrades):
+    if not isinstance(upgrades, list):
+        return []
+    normalized = []
+    for upgrade in upgrades:
+        if isinstance(upgrade, str):
+            normalized.append({"id": upgrade})
+        elif isinstance(upgrade, dict) and isinstance(upgrade.get("id"), str):
+            normalized_upgrade = {"id": upgrade["id"]}
+            if isinstance(upgrade.get("color"), str):
+                normalized_upgrade["color"] = upgrade["color"]
+            normalized.append(normalized_upgrade)
+    return normalized
+
+
+def upgrade_ids(player):
+    pod = player.get("pod", {})
+    upgrades = pod.get("upgrades", []) if isinstance(pod, dict) else []
+    return {
+        upgrade.get("id")
+        for upgrade in upgrades
+        if isinstance(upgrade, dict) and isinstance(upgrade.get("id"), str)
+    }
+
+
+def has_upgrade(player, upgrade_id):
+    return upgrade_id in upgrade_ids(player)
+
+
+def player_shield_max_charges(player):
+    max_charges = PLAYER_SHIELD_MAX_CHARGES
+    if has_upgrade(player, "extra_shield_slot_1"):
+        max_charges += 1
+    if has_upgrade(player, "extra_shield_slot_2"):
+        max_charges += 1
+    return max_charges
 
 
 def load_players():
@@ -96,7 +238,7 @@ def load_players():
                 name[:24],
                 completed_lessons=completed_lessons,
                 lives=max(1, lives),
-                shield_charges=max(0, min(PLAYER_SHIELD_MAX_CHARGES, shield_charges)),
+                shield_charges=max(0, shield_charges),
                 lifetime_score=item.get("lifetime_score", 0),
                 achievements=item.get("achievements", []),
                 credits=item.get("credits", 0),
@@ -131,19 +273,27 @@ def create_player_record(
     pod = pod if isinstance(pod, dict) else {}
     pod_color = pod.get("color", DEFAULT_POD["color"])
     pod_type = pod.get("type", DEFAULT_POD["type"])
-    pod_upgrades = pod.get("upgrades", [])
+    pod_upgrades = normalize_pod_upgrades(pod.get("upgrades", []))
     if not isinstance(pod_color, str) or not pod_color.strip():
         pod_color = DEFAULT_POD["color"]
     if not isinstance(pod_type, str) or not pod_type.strip():
         pod_type = DEFAULT_POD["type"]
-    if not isinstance(pod_upgrades, list):
-        pod_upgrades = []
+    shield_cap = PLAYER_SHIELD_MAX_CHARGES
+    upgrade_id_set = {
+        upgrade.get("id")
+        for upgrade in pod_upgrades
+        if isinstance(upgrade, dict) and isinstance(upgrade.get("id"), str)
+    }
+    if "extra_shield_slot_1" in upgrade_id_set:
+        shield_cap += 1
+    if "extra_shield_slot_2" in upgrade_id_set:
+        shield_cap += 1
 
     return {
         "name": name,
         "completed_lessons": completed_lessons or [],
         "lives": max(1, lives),
-        "shield_charges": max(0, min(PLAYER_SHIELD_MAX_CHARGES, shield_charges)),
+        "shield_charges": max(0, min(shield_cap, shield_charges)),
         "lifetime_score": max(0, lifetime_score),
         "achievements": achievements,
         "credits": max(0, credits),
@@ -186,6 +336,115 @@ def player_rank(player):
     return "Major"
 
 
+def achievement_count(player):
+    achievements = player.get("achievements", [])
+    return len(achievements) if isinstance(achievements, list) else 0
+
+
+def player_credits(player):
+    credits = player.get("credits", 0)
+    return max(0, credits) if isinstance(credits, int) else 0
+
+
+def rank_at_least(player, minimum_rank):
+    try:
+        return RANK_ORDER.index(player_rank(player)) >= RANK_ORDER.index(minimum_rank)
+    except ValueError:
+        return False
+
+
+def upgrade_by_id(upgrade_id):
+    return next((upgrade for upgrade in UPGRADE_CATALOG if upgrade["id"] == upgrade_id), None)
+
+
+def upgrade_lock_reason(player, upgrade):
+    if not upgrade.get("repeatable") and has_upgrade(player, upgrade["id"]):
+        return "Owned"
+    min_unlocked = upgrade.get("min_unlocked")
+    if min_unlocked and unlocked_lesson_count(player) < min_unlocked:
+        return upgrade["requirement"]
+    min_rank = upgrade.get("min_rank")
+    if min_rank and not rank_at_least(player, min_rank):
+        return upgrade["requirement"]
+    required_upgrade = upgrade.get("requires_upgrade")
+    if required_upgrade and not has_upgrade(player, required_upgrade):
+        required = upgrade_by_id(required_upgrade)
+        return f"Requires {required['name']}" if required else "Locked"
+    if player_credits(player) < upgrade["cost"]:
+        return "Need credits"
+    if upgrade["id"] in ("shield_charge", "shield_charge_3"):
+        if player.get("shield_charges", 0) >= player_shield_max_charges(player):
+            return "Shield full"
+    return None
+
+
+def upgrade_is_progress_locked(player, upgrade):
+    reason = upgrade_lock_reason(player, upgrade)
+    return reason is not None and reason != "Need credits"
+
+
+def upgrade_shows_purchased(player, upgrade):
+    purchased_upgrade_ids = {
+        "extra_shield_slot_1",
+        "extra_shield_slot_2",
+        "defense_drone",
+        "second_defense_drone",
+    }
+    return upgrade["id"] in purchased_upgrade_ids and has_upgrade(player, upgrade["id"])
+
+
+def upgrade_color(player, upgrade_id):
+    pod = player.get("pod", {}) if isinstance(player, dict) else {}
+    upgrades = pod.get("upgrades", []) if isinstance(pod, dict) else []
+    for upgrade in reversed(normalize_pod_upgrades(upgrades)):
+        if upgrade.get("id") == upgrade_id and isinstance(upgrade.get("color"), str):
+            return upgrade["color"]
+    return None
+
+
+def color_value(color_name):
+    for name, value in UPGRADE_COLORS:
+        if name == color_name:
+            return value
+    return None
+
+
+def disabled_icon_name(icon_name):
+    if not isinstance(icon_name, str) or not icon_name.endswith(".png"):
+        return icon_name
+    return f"{icon_name[:-4]}_disabled.png"
+
+
+def add_pod_upgrade(player, upgrade, color_name=None):
+    pod = player.setdefault("pod", DEFAULT_POD.copy())
+    if not isinstance(pod, dict):
+        pod = DEFAULT_POD.copy()
+        player["pod"] = pod
+    upgrades = normalize_pod_upgrades(pod.get("upgrades", []))
+    entry = {"id": upgrade["id"]}
+    if color_name is not None:
+        entry["color"] = color_name
+    upgrades.append(entry)
+    pod["upgrades"] = upgrades
+
+
+def apply_upgrade_purchase(player, upgrade, color_name=None):
+    player["credits"] = max(0, player_credits(player) - upgrade["cost"])
+    if upgrade["id"] == "extra_life":
+        add_pod_upgrade(player, upgrade)
+        player["lives"] = max(1, player.get("lives", STARTING_LIVES) + 1)
+    elif upgrade["id"] == "shield_charge":
+        add_pod_upgrade(player, upgrade)
+        player["shield_charges"] = min(player_shield_max_charges(player), player.get("shield_charges", 0) + 1)
+    elif upgrade["id"] == "shield_charge_3":
+        add_pod_upgrade(player, upgrade)
+        player["shield_charges"] = min(player_shield_max_charges(player), player.get("shield_charges", 0) + 3)
+    else:
+        add_pod_upgrade(player, upgrade, color_name)
+        if upgrade["id"].startswith("extra_shield_slot"):
+            player["shield_charges"] = min(player_shield_max_charges(player), player.get("shield_charges", 0))
+
+
 def mark_lesson_complete(player, lesson_number):
     completed = set(player.get("completed_lessons", []))
     completed.add(lesson_number)
@@ -202,6 +461,16 @@ def toggle_fullscreen():
     if is_fullscreen:
         return pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
     return pygame.display.set_mode(SCREEN_SIZE, WINDOW_FLAGS)
+
+
+def enforce_min_window_size(screen):
+    if screen.get_flags() & pygame.FULLSCREEN:
+        return screen
+    width, height = screen.get_size()
+    min_width, min_height = MIN_SCREEN_SIZE
+    if width >= min_width and height >= min_height:
+        return screen
+    return pygame.display.set_mode((max(width, min_width), max(height, min_height)), WINDOW_FLAGS)
 
 
 def run_lesson(screen, clock, lesson, player):
@@ -231,6 +500,8 @@ def create_player_screen(screen, clock, players):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return "quit"
+            if event.type == pygame.VIDEORESIZE:
+                screen = enforce_min_window_size(screen)
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_F11:
                     screen = toggle_fullscreen()
@@ -283,6 +554,7 @@ def player_select_loop(screen, clock):
     selected = 0
     delete_confirm = False
     stars = create_star_field()
+    player_rects = []
 
     while True:
         update_star_field(stars, clock.get_time() / 1000)
@@ -292,6 +564,8 @@ def player_select_loop(screen, clock):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return "quit"
+            if event.type == pygame.VIDEORESIZE:
+                screen = enforce_min_window_size(screen)
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_F11:
                     screen = toggle_fullscreen()
@@ -321,6 +595,17 @@ def player_select_loop(screen, clock):
                     delete_confirm = False
                 elif event.key in (pygame.K_RETURN, pygame.K_SPACE) and players:
                     return players, players[selected]
+            if event.type == pygame.MOUSEBUTTONDOWN and players:
+                if event.button == 1:
+                    for index, rect in player_rects:
+                        if rect.collidepoint(event.pos):
+                            return players, players[index]
+                elif event.button == 4:
+                    selected = (selected - 1) % len(players)
+                    delete_confirm = False
+                elif event.button == 5:
+                    selected = (selected + 1) % len(players)
+                    delete_confirm = False
 
         screen = pygame.display.get_surface()
         width, height = screen.get_size()
@@ -346,6 +631,9 @@ def player_select_loop(screen, clock):
         else:
             visible_rows = max(1, (height - list_top - 112) // item_gap)
             first_visible = max(0, min(selected - visible_rows + 1, len(players) - visible_rows))
+            list_height = visible_rows * item_gap - 22
+            list_width = content_width - 24 if len(players) > visible_rows else content_width
+            player_rects = []
             for index, player in enumerate(players):
                 if not first_visible <= index < first_visible + visible_rows:
                     continue
@@ -355,11 +643,20 @@ def player_select_loop(screen, clock):
                 border_color = ACCENT if is_selected else (43, 57, 89)
                 unlocked = unlocked_lesson_count(player)
                 rank = player_rank(player)
-                pygame.draw.rect(screen, card_color, (content_left, y - 20, content_width, 82), border_radius=8)
-                pygame.draw.rect(screen, border_color, (content_left, y - 20, content_width, 82), 2, border_radius=8)
+                card_rect = pygame.Rect(content_left, y - 20, list_width, 82)
+                player_rects.append((index, card_rect))
+                pygame.draw.rect(screen, card_color, card_rect, border_radius=8)
+                pygame.draw.rect(screen, border_color, card_rect, 2, border_radius=8)
                 draw_text(screen, player["name"], item_font, TEXT_COLOR, (x, y - 4))
-                summary = f"Unlocked missions: {unlocked}/{len(LESSONS)}    Rank: {rank}"
+                summary = (
+                    f"Unlocked missions: {unlocked}/{len(LESSONS)}    "
+                    f"Rank: {rank}    "
+                    f"Achievements: {achievement_count(player)}    "
+                    f"Credits: {player_credits(player)}"
+                )
                 draw_text(screen, summary, body_font, MUTED_TEXT, (x, y + 34))
+            scrollbar_rect = pygame.Rect(content_left + content_width - 12, list_top - 20, 8, list_height)
+            draw_scrollbar(screen, scrollbar_rect, len(players), visible_rows, first_visible)
 
         if delete_confirm and players:
             message = f"Delete {players[selected]['name']}? Press Y to confirm or N to cancel."
@@ -367,6 +664,381 @@ def player_select_loop(screen, clock):
         draw_text(screen, "Enter/␣: Select  |  N: New  |  Delete: Delete  |  Q: Quit  |  F11: Max size", small_font, MUTED_TEXT, (text_left + 4, height - 58))
         pygame.display.flip()
         clock.tick(60)
+
+
+def draw_modal_backdrop(screen):
+    width, height = screen.get_size()
+    overlay = pygame.Surface((width, height), pygame.SRCALPHA)
+    overlay.fill((2, 5, 13, 210))
+    screen.blit(overlay, (0, 0))
+
+
+def draw_modal_button(screen, rect, text, font, enabled=True, selected=False):
+    if enabled:
+        fill = (20, 32, 58) if not selected else (24, 50, 70)
+        border = ACCENT if selected else (65, 82, 120)
+        color = TEXT_COLOR
+    else:
+        fill = (12, 17, 28)
+        border = (35, 42, 62)
+        color = MUTED_TEXT
+    pygame.draw.rect(screen, fill, rect, border_radius=8)
+    pygame.draw.rect(screen, border, rect, 2, border_radius=8)
+    label = font.render(text, True, color)
+    screen.blit(label, label.get_rect(center=rect.center))
+
+
+def draw_buy_button(screen, rect, font, hovered=False):
+    fill = (118, 88, 24) if hovered else (20, 32, 58)
+    border = LOCKED_SELECTED if hovered else ACCENT
+    pygame.draw.rect(screen, fill, rect, border_radius=8)
+    pygame.draw.rect(screen, border, rect, 2, border_radius=8)
+    label = font.render("BUY", True, TEXT_COLOR)
+    screen.blit(label, label.get_rect(center=rect.center))
+
+
+def load_ui_image(path):
+    cache_key = str(path)
+    if cache_key in ui_image_cache:
+        return ui_image_cache[cache_key]
+    try:
+        image = pygame.image.load(str(path)).convert_alpha()
+    except (OSError, pygame.error):
+        image = None
+    ui_image_cache[cache_key] = image
+    return image
+
+
+def draw_square_image_button(screen, rect, image=None):
+    pygame.draw.rect(screen, (20, 32, 58), rect, border_radius=8)
+    if image is not None:
+        scaled = pygame.transform.smoothscale(image, (rect.width, rect.height))
+        screen.blit(scaled, rect)
+    pygame.draw.rect(screen, ACCENT, rect, 2, border_radius=8)
+
+
+def draw_upgrades_modal(screen, title_font, body_font, small_font, player):
+    width, height = screen.get_size()
+    draw_modal_backdrop(screen)
+    margin_x = 14 if width >= 640 else 6
+    margin_y = 8 if height >= 520 else 4
+    modal_width = max(1, min(1120, width - margin_x * 2))
+    modal_height = max(1, min(900, height - margin_y * 2))
+    modal_rect = pygame.Rect(0, 0, modal_width, modal_height)
+    modal_rect.center = (width / 2, height / 2)
+    title_font = pygame.font.SysFont("arial", max(24, min(42, modal_height // 15)), bold=True)
+    body_font = pygame.font.SysFont("arial", max(14, min(22, modal_height // 28)))
+    small_font = pygame.font.SysFont("arial", max(11, min(20, modal_height // 34)))
+    pygame.draw.rect(screen, (10, 18, 34), modal_rect, border_radius=8)
+    pygame.draw.rect(screen, ACCENT, modal_rect, 2, border_radius=8)
+    header_pad = max(10, min(28, modal_height // 28))
+    draw_text(screen, "UPGRADES", title_font, TEXT_COLOR, (modal_rect.x + header_pad, modal_rect.y + header_pad))
+    draw_text(
+        screen,
+        f"Credits: {player_credits(player)}    Rank: {player_rank(player)}    Lives: {player.get('lives', STARTING_LIVES)}    Shields: {player.get('shield_charges', 0)}/{player_shield_max_charges(player)}",
+        body_font,
+        MUTED_TEXT,
+        (modal_rect.x + header_pad + 4, modal_rect.y + header_pad + title_font.get_height() + 16),
+    )
+
+    buy_rects = []
+    mouse_pos = pygame.mouse.get_pos()
+    if modal_width >= 560:
+        cols = 3
+    elif modal_width >= 390:
+        cols = 2
+    else:
+        cols = 1
+    gap = max(6, min(16, modal_width // 70))
+    side_pad = max(8, min(32, modal_width // 35))
+    box_width = max(1, (modal_width - side_pad * 2 - gap * (cols - 1)) // cols)
+    start_x = modal_rect.x + side_pad
+    start_y = modal_rect.y + max(90, min(130, modal_height // 5))
+    footer_height = max(52, min(78, modal_height // 9))
+    footer_top = modal_rect.bottom - footer_height
+    rows = math.ceil(len(UPGRADE_CATALOG) / cols)
+    available_grid_height = max(1, footer_top - start_y - gap * (rows - 1))
+    box_height = max(1, available_grid_height // rows)
+    for index, upgrade in enumerate(UPGRADE_CATALOG):
+        col = index % cols
+        row = index // cols
+        rect = pygame.Rect(
+            start_x + col * (box_width + gap),
+            start_y + row * (box_height + gap),
+            box_width,
+            box_height,
+        )
+        locked_reason = upgrade_lock_reason(player, upgrade)
+        fill = (20, 32, 58) if locked_reason is None else (12, 17, 28)
+        border = (65, 82, 120) if locked_reason is None else (35, 42, 62)
+        title_color = TEXT_COLOR if locked_reason is None else MUTED_TEXT
+        pygame.draw.rect(screen, fill, rect, border_radius=8)
+        pygame.draw.rect(screen, border, rect, 2, border_radius=8)
+        previous_clip = screen.get_clip()
+        clip_rect = rect.inflate(-4, -4)
+        if clip_rect.width <= 0 or clip_rect.height <= 0:
+            clip_rect = rect
+        screen.set_clip(clip_rect)
+        action_height = max(22, min(44, box_height // 4))
+        action_rect = pygame.Rect(rect.x + 2, rect.bottom - action_height - 2, rect.width - 4, action_height)
+        content_gap = max(4, min(16, box_height // 12))
+        content_rect = pygame.Rect(rect.x, rect.y, rect.width, max(1, action_rect.y - rect.y - content_gap))
+        icon_size = max(1, min(content_rect.height, max(34, int(box_width * 0.38))))
+        art_rect = pygame.Rect(content_rect.x, content_rect.y, icon_size, icon_size)
+        pygame.draw.rect(screen, (26, 36, 58), art_rect, border_radius=8)
+        icon_name = upgrade.get("icon", "")
+        if upgrade_is_progress_locked(player, upgrade):
+            icon_name = disabled_icon_name(icon_name)
+        icon = load_ui_image(BASE_DIR / "gfx" / icon_name)
+        if icon is not None:
+            scaled_icon = pygame.transform.smoothscale(icon, (art_rect.width, art_rect.height))
+            screen.blit(scaled_icon, art_rect)
+        pygame.draw.rect(screen, (71, 88, 124), art_rect, 1, border_radius=8)
+        detail_x = art_rect.right + max(6, min(12, box_width // 28))
+        line_gap = max(14, small_font.get_height() + 3)
+        detail_y = content_rect.y + max(4, min(14, content_rect.height // 12))
+        draw_text(screen, upgrade["name"], small_font, title_color, (detail_x, detail_y))
+        draw_text(screen, f"{upgrade['cost']} credits", small_font, MUTED_TEXT, (detail_x, detail_y + line_gap))
+        if upgrade.get("color_choice"):
+            current_color = color_value(upgrade_color(player, upgrade["id"]))
+            if current_color is not None:
+                swatch_size = max(10, min(18, small_font.get_height()))
+                swatch_rect = pygame.Rect(rect.right - swatch_size - 14, detail_y + line_gap + 1, swatch_size, swatch_size)
+                pygame.draw.rect(screen, current_color, swatch_rect, border_radius=3)
+                pygame.draw.rect(screen, (225, 235, 255), swatch_rect, 2, border_radius=3)
+        status = locked_reason or "Available"
+        draw_text(screen, status, small_font, ACCENT if locked_reason is None else LOCKED_SELECTED, (detail_x, detail_y + line_gap * 2))
+        draw_text(screen, upgrade["requirement"], small_font, MUTED_TEXT, (detail_x, detail_y + line_gap * 3))
+        if upgrade_shows_purchased(player, upgrade):
+            purchased_surface = small_font.render("PURCHASED", True, ACCENT)
+            screen.blit(purchased_surface, purchased_surface.get_rect(center=action_rect.center))
+        else:
+            draw_buy_button(screen, action_rect, small_font, action_rect.collidepoint(mouse_pos))
+            buy_rects.append((index, action_rect))
+        screen.set_clip(previous_clip)
+
+    footer_rect = pygame.Rect(modal_rect.x + 2, footer_top, modal_rect.width - 4, footer_height - 2)
+    pygame.draw.rect(screen, (10, 18, 34), footer_rect)
+    pygame.draw.line(screen, (43, 57, 89), (footer_rect.x, footer_rect.y), (footer_rect.right, footer_rect.y), 1)
+    close_rect = pygame.Rect(modal_rect.right - 150, footer_top + 20, 118, 38)
+    draw_modal_button(screen, close_rect, "Close", small_font, True, False)
+    draw_text(screen, "Press BUY to purchase an upgrade. Esc closes.", small_font, MUTED_TEXT, (modal_rect.x + 32, footer_top + 30))
+    return buy_rects, close_rect
+
+
+def confirm_purchase_modal(screen, clock, upgrade, player):
+    title_font = pygame.font.SysFont("arial", 38, bold=True)
+    body_font = pygame.font.SysFont("arial", 22)
+    small_font = pygame.font.SysFont("arial", 18)
+    confirm_rect = pygame.Rect(0, 0, 0, 0)
+    cancel_rect = pygame.Rect(0, 0, 0, 0)
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return "quit"
+            if event.type == pygame.VIDEORESIZE:
+                screen = enforce_min_window_size(screen)
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    return False
+                if event.key in (pygame.K_RETURN, pygame.K_SPACE, pygame.K_y):
+                    return True
+                if event.key in (pygame.K_n, pygame.K_BACKSPACE):
+                    return False
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                mouse_pos = event.pos
+                if confirm_rect.collidepoint(mouse_pos):
+                    return True
+                if cancel_rect.collidepoint(mouse_pos):
+                    return False
+
+        screen = pygame.display.get_surface()
+        width, height = screen.get_size()
+        draw_modal_backdrop(screen)
+        rect = pygame.Rect(0, 0, min(560, width - 80), 250)
+        rect.center = (width / 2, height / 2)
+        pygame.draw.rect(screen, (10, 18, 34), rect, border_radius=8)
+        pygame.draw.rect(screen, ACCENT, rect, 2, border_radius=8)
+        draw_text(screen, "CONFIRM PURCHASE", title_font, TEXT_COLOR, (rect.x + 28, rect.y + 24))
+        draw_text(screen, upgrade["name"], body_font, TEXT_COLOR, (rect.x + 32, rect.y + 88))
+        draw_text(screen, f"Cost: {upgrade['cost']} credits    Available: {player_credits(player)}", body_font, MUTED_TEXT, (rect.x + 32, rect.y + 122))
+        confirm_rect = pygame.Rect(rect.x + 32, rect.bottom - 62, 170, 42)
+        cancel_rect = pygame.Rect(rect.right - 202, rect.bottom - 62, 170, 42)
+        draw_modal_button(screen, confirm_rect, "Purchase", body_font, True, True)
+        draw_modal_button(screen, cancel_rect, "Cancel", body_font, True, False)
+        pygame.display.flip()
+        clock.tick(60)
+
+
+def insufficient_funds_modal(screen, clock, upgrade, player):
+    title_font = pygame.font.SysFont("arial", 38, bold=True)
+    body_font = pygame.font.SysFont("arial", 22)
+    ok_rect = pygame.Rect(0, 0, 0, 0)
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return "quit"
+            if event.type == pygame.KEYDOWN:
+                if event.key in (pygame.K_ESCAPE, pygame.K_RETURN, pygame.K_SPACE):
+                    return None
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if ok_rect.collidepoint(event.pos):
+                    return None
+
+        screen = pygame.display.get_surface()
+        width, height = screen.get_size()
+        draw_modal_backdrop(screen)
+        rect = pygame.Rect(0, 0, min(600, width - 80), 260)
+        rect.center = (width / 2, height / 2)
+        pygame.draw.rect(screen, (10, 18, 34), rect, border_radius=8)
+        pygame.draw.rect(screen, LOCKED_SELECTED, rect, 2, border_radius=8)
+        draw_text(screen, "NOT ENOUGH FUNDS", title_font, LOCKED_SELECTED, (rect.x + 28, rect.y + 24))
+        draw_text(screen, f"{upgrade['name']} costs {upgrade['cost']} credits.", body_font, TEXT_COLOR, (rect.x + 32, rect.y + 92))
+        draw_text(screen, f"You have {player_credits(player)} credits.", body_font, MUTED_TEXT, (rect.x + 32, rect.y + 126))
+        draw_text(screen, "Destroy more drones to earn more credits.", body_font, MUTED_TEXT, (rect.x + 32, rect.y + 160))
+        ok_rect = pygame.Rect(rect.right - 174, rect.bottom - 62, 142, 42)
+        draw_modal_button(screen, ok_rect, "OK", body_font, True, True)
+        pygame.display.flip()
+        clock.tick(60)
+
+
+def upgrade_locked_modal(screen, clock, upgrade, reason):
+    title_font = pygame.font.SysFont("arial", 38, bold=True)
+    body_font = pygame.font.SysFont("arial", 22)
+    ok_rect = pygame.Rect(0, 0, 0, 0)
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return "quit"
+            if event.type == pygame.KEYDOWN:
+                if event.key in (pygame.K_ESCAPE, pygame.K_RETURN, pygame.K_SPACE):
+                    return None
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if ok_rect.collidepoint(event.pos):
+                    return None
+
+        screen = pygame.display.get_surface()
+        width, height = screen.get_size()
+        draw_modal_backdrop(screen)
+        rect = pygame.Rect(0, 0, min(600, width - 80), 260)
+        rect.center = (width / 2, height / 2)
+        pygame.draw.rect(screen, (10, 18, 34), rect, border_radius=8)
+        pygame.draw.rect(screen, LOCKED_SELECTED, rect, 2, border_radius=8)
+        draw_text(screen, "UPGRADE LOCKED", title_font, LOCKED_SELECTED, (rect.x + 28, rect.y + 24))
+        draw_text(screen, upgrade["name"], body_font, TEXT_COLOR, (rect.x + 32, rect.y + 92))
+        draw_text(screen, reason, body_font, MUTED_TEXT, (rect.x + 32, rect.y + 128))
+        draw_text(screen, "Keep progressing to unlock this upgrade.", body_font, MUTED_TEXT, (rect.x + 32, rect.y + 162))
+        ok_rect = pygame.Rect(rect.right - 174, rect.bottom - 62, 142, 42)
+        draw_modal_button(screen, ok_rect, "OK", body_font, True, True)
+        pygame.display.flip()
+        clock.tick(60)
+
+
+def color_choice_modal(screen, clock, upgrade):
+    title_font = pygame.font.SysFont("arial", 38, bold=True)
+    body_font = pygame.font.SysFont("arial", 22)
+    small_font = pygame.font.SysFont("arial", 18)
+    selected = 0
+    color_rects = []
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return "quit"
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    return None
+                if event.key in (pygame.K_LEFT, pygame.K_a):
+                    selected = (selected - 1) % len(UPGRADE_COLORS)
+                if event.key in (pygame.K_RIGHT, pygame.K_d):
+                    selected = (selected + 1) % len(UPGRADE_COLORS)
+                if event.key in (pygame.K_UP, pygame.K_w):
+                    selected = (selected - 4) % len(UPGRADE_COLORS)
+                if event.key in (pygame.K_DOWN, pygame.K_s):
+                    selected = (selected + 4) % len(UPGRADE_COLORS)
+                if event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                    return UPGRADE_COLORS[selected][0]
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                for index, rect in enumerate(color_rects):
+                    if rect.collidepoint(event.pos):
+                        return UPGRADE_COLORS[index][0]
+
+        screen = pygame.display.get_surface()
+        width, height = screen.get_size()
+        draw_modal_backdrop(screen)
+        rect = pygame.Rect(0, 0, min(620, width - 80), 390)
+        rect.center = (width / 2, height / 2)
+        pygame.draw.rect(screen, (10, 18, 34), rect, border_radius=8)
+        pygame.draw.rect(screen, ACCENT, rect, 2, border_radius=8)
+        draw_text(screen, "CHOOSE COLOR", title_font, TEXT_COLOR, (rect.x + 28, rect.y + 24))
+        draw_text(screen, upgrade["name"], body_font, MUTED_TEXT, (rect.x + 32, rect.y + 82))
+        color_rects = []
+        swatch_size = 58
+        gap = 22
+        start_x = rect.x + 52
+        start_y = rect.y + 130
+        for index, (name, color) in enumerate(UPGRADE_COLORS):
+            col = index % 4
+            row = index // 4
+            swatch_rect = pygame.Rect(start_x + col * (swatch_size + gap), start_y + row * 82, swatch_size, swatch_size)
+            color_rects.append(swatch_rect)
+            pygame.draw.rect(screen, color, swatch_rect, border_radius=6)
+            pygame.draw.rect(screen, ACCENT if index == selected else (65, 82, 120), swatch_rect, 3, border_radius=6)
+            draw_text(screen, name, small_font, TEXT_COLOR, (swatch_rect.x, swatch_rect.bottom + 6))
+        draw_text(screen, "Esc cancels.", small_font, MUTED_TEXT, (rect.x + 32, rect.bottom - 40))
+        pygame.display.flip()
+        clock.tick(60)
+
+
+def upgrades_modal_loop(screen, clock, players, player):
+    title_font = pygame.font.SysFont("arial", 42, bold=True)
+    body_font = pygame.font.SysFont("arial", 22)
+    small_font = pygame.font.SysFont("arial", 20)
+    buy_rects = []
+    close_rect = pygame.Rect(0, 0, 0, 0)
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return "quit"
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    return None
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if close_rect.collidepoint(event.pos):
+                    return None
+                for index, rect in buy_rects:
+                    if rect.collidepoint(event.pos):
+                        result = attempt_upgrade_purchase(screen, clock, players, player, UPGRADE_CATALOG[index])
+                        if result == "quit":
+                            return "quit"
+                        break
+
+        screen = pygame.display.get_surface()
+        buy_rects, close_rect = draw_upgrades_modal(screen, title_font, body_font, small_font, player)
+        pygame.display.flip()
+        clock.tick(60)
+
+
+def attempt_upgrade_purchase(screen, clock, players, player, upgrade):
+    lock_reason = upgrade_lock_reason(player, upgrade)
+    if lock_reason == "Need credits":
+        return insufficient_funds_modal(screen, clock, upgrade, player)
+    if lock_reason is not None:
+        return upgrade_locked_modal(screen, clock, upgrade, lock_reason)
+    confirmed = confirm_purchase_modal(screen, clock, upgrade, player)
+    if confirmed == "quit":
+        return "quit"
+    if not confirmed:
+        return None
+    color_name = None
+    if upgrade.get("color_choice"):
+        color_name = color_choice_modal(screen, clock, upgrade)
+        if color_name == "quit":
+            return "quit"
+        if color_name is None:
+            return None
+    apply_upgrade_purchase(player, upgrade, color_name)
+    save_players(players)
+    return None
 
 
 def menu_loop(screen, clock, players, player):
@@ -377,6 +1049,9 @@ def menu_loop(screen, clock, players, player):
 
     selected = 0
     stars = create_star_field()
+    mission_rects = []
+    upgrades_button_rect = None
+    upgrades_image = load_ui_image(BASE_DIR / "gfx" / "upgrades.png")
 
     while True:
         update_star_field(stars, clock.get_time() / 1000)
@@ -408,6 +1083,27 @@ def menu_loop(screen, clock, players, player):
                             save_players(players)
                             selected = min(completed_index + 1, unlocked_lesson_count(player) - 1)
                         pygame.event.clear((pygame.KEYDOWN, pygame.KEYUP))
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if upgrades_button_rect is not None and upgrades_button_rect.collidepoint(event.pos):
+                    result = upgrades_modal_loop(screen, clock, players, player)
+                    if result == "quit":
+                        return "quit"
+                    pygame.event.clear((pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP))
+                    continue
+                for index, rect in mission_rects:
+                    if rect.collidepoint(event.pos):
+                        selected = index
+                        if index < unlocked_count:
+                            result = run_lesson(screen, clock, LESSONS[index], player)
+                            save_players(players)
+                            if result == "quit":
+                                return "quit"
+                            if result == "won":
+                                mark_lesson_complete(player, LESSONS[index]["number"])
+                                save_players(players)
+                                selected = min(index + 1, unlocked_lesson_count(player) - 1)
+                            pygame.event.clear((pygame.KEYDOWN, pygame.KEYUP, pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP))
+                        break
 
         screen = pygame.display.get_surface()
         width, height = screen.get_size()
@@ -416,10 +1112,12 @@ def menu_loop(screen, clock, players, player):
         text_left = content_left + 20
         screen.fill(BG_COLOR)
         draw_star_field(screen, stars)
+        upgrades_button_rect = pygame.Rect(content_left + content_width - 80, 128, 80, 80)
+        draw_square_image_button(screen, upgrades_button_rect, upgrades_image)
         draw_text(screen, "TYPE FIGHTER", title_font, TEXT_COLOR, (text_left, 90))
         draw_text(
             screen,
-            f"{player['name']}    Rank: {player_rank(player)}    Unlocked: {unlocked_count}/{len(LESSONS)}",
+            f"{player['name']}    Rank: {player_rank(player)}    Unlocked: {unlocked_count}/{len(LESSONS)}    Credits: {player_credits(player)}",
             body_font,
             MUTED_TEXT,
             (text_left + 4, 160),
@@ -432,6 +1130,7 @@ def menu_loop(screen, clock, players, player):
         first_visible = max(0, min(selected - visible_rows + 1, len(LESSONS) - visible_rows))
         list_height = visible_rows * item_gap - 24
         list_width = content_width - 24 if len(LESSONS) > visible_rows else content_width
+        mission_rects = []
         for index, lesson in enumerate(LESSONS):
             if not first_visible <= index < first_visible + visible_rows:
                 continue
@@ -454,6 +1153,7 @@ def menu_loop(screen, clock, players, player):
                 border_color = (35, 42, 62)
                 title_color = MUTED_TEXT
             card_rect = pygame.Rect(content_left, y - 22, list_width, 86)
+            mission_rects.append((index, card_rect))
             pygame.draw.rect(screen, card_color, card_rect, border_radius=8)
             pygame.draw.rect(screen, border_color, card_rect, border_width, border_radius=8)
             if is_selected:
@@ -478,6 +1178,8 @@ def main():
         pass
 
     screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+    if hasattr(pygame.display, "set_minimum_size"):
+        pygame.display.set_minimum_size(*MIN_SCREEN_SIZE)
     pygame.display.set_caption("Type Fighter")
     clock = pygame.time.Clock()
 
