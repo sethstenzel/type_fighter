@@ -1,11 +1,7 @@
 Ok rookie... lesson two starts now.
 
-Your training pod will be at the center of the screen.
-Enemy drones will appear and move toward your pod.
-
 This time, the drones are testing your middle fingers and your thumb control.
-
-Each drone will have D, K, or ␣ near it.
+In this lessen we are adding 'D', 'K', and Spacebar.
 
 When you see D, press the D key with your left middle finger.
 When you see K, press the K key with your right middle finger.
@@ -14,10 +10,6 @@ When you see ␣, press the ␣ with either thumb.
 Do not move your whole hand.
 Do not look down at the keyboard.
 
-Keep your fingers on the home row, fire at the drones, and return to ready position after every shot.
-
-Some drones will take more than one shot to destroy.
-
-Stay focused, pilot.
+Keep your fingers on the home row... Stay focused, pilot.
 
 Here they come!

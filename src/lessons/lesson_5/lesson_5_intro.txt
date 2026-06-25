@@ -1,25 +1,20 @@
-Welcome back, pilot ... lesson 5 is ready.
+Welcome back, pilot ... and congratulations on your promotion.
+Things are going to get a bit harder from here.
 
-Your new training keys are G and H.
+You may have noticed you've been getting credits for your work after each mission.
 
-These keys use: Left index, right index.
+You now have access to the upgrades shop, you can find a button for it at the top right of the missions lists.
+They can be a life safer as these missions are about to get a lot tougher.
+Some upgrades require you've reached a certain level, others a certain rank.
 
-You are not starting over. Every key from the earlier lessons is still part of your control panel.
-Your job is to add these two new keys while keeping your hands anchored and your eyes forward.
+Rank has it's privileges though Private.
+You will now have a new ability called "Mega Shot" It will charge up, and when holding the Spacebar and then pressing a fire key will fire a large energy shot at a drone.
+This will be vitally important for defeating new a new boss drone which will appear at the end of the lesson.
+It is also useful for killing greater drones in one shot so they don't split into lesser drones.
 
-Before launch, place both hands on the home row.
-Find F and J by touch if you need to reset your position.
-Then prepare the fingers for G and H.
+New weapons, new enemies, new upgrades. You've earned it all. 
 
-When a drone shows one of the new keys, press it with the correct finger.
-When a drone shows a key from an earlier lesson, use the finger you already trained.
-After every key press, return to your ready position.
+In this next mission, your new training keys are 'G' and 'H'.
+These keys use your Left index finger, and right index finger.
 
-Do not chase the keyboard with your whole hand.
-Do not look down if you can help it.
-Small movements, steady hands, eyes forward.
-
-In this mission, drones may use all keys you have learned so far, with extra focus on G and H.
-Stay calm, read the drone, press the key, and get back to ready position.
-
-To launch the training simulation, use either thumb to press the ␣.
+To launch the training simulation, use either thumb to press the Spacebar.
