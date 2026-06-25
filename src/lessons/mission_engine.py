@@ -62,10 +62,16 @@ FINAL_BOSS_IMAGE_SIZE = FINAL_BOSS_RADIUS * 2
 FINAL_BOSS_SHIELD_MAX = 3
 FINAL_BOSS_SHIELD_DOWN_MS = 15000
 FINAL_BOSS_SHIELD_RECHARGE_MS = 5000
-FINAL_BOSS_ATTACK_INTERVAL_MS = 8000
+FINAL_BOSS_ATTACK_INTERVAL_MS = 4000
+FINAL_BOSS_SEMI_BOSS_FIRST_SPAWN_MS = 15000
+FINAL_BOSS_SEMI_BOSS_SPAWN_INTERVAL_MS = 20000
 FINAL_BOSS_APPROACH_SPEED = 90
 FINAL_BOSS_ORBIT_SECONDS = 10
-FINAL_BOSS_ORBIT_DISTANCE_SCALE = 1.44
+FINAL_BOSS_PLAYER_X_RATIO = 0.78
+FINAL_BOSS_ENTRY_PROGRESS = 0.30
+FINAL_BOSS_VERTICAL_MIN_RATIO = 0.15
+FINAL_BOSS_VERTICAL_MAX_RATIO = 0.85
+FINAL_BOSS_PLAYER_PAN_SPEED = FINAL_BOSS_APPROACH_SPEED
 FINAL_BOSS_ORBIT_SWITCH_MIN_MS = 10000
 FINAL_BOSS_ORBIT_SWITCH_MAX_MS = 30000
 MINI_BOSS_STRAFE_RANGE = 95
@@ -84,7 +90,8 @@ MEGA_RECHARGE_DELAY_MS = 1000
 MEGA_SHIELD_MIN_LEVEL = 3
 MEGA_FINAL_KILL_LEVEL = 5
 POWER_UP_DURATION_MS = 10000
-POWER_UP_WARNING_MS = 3000
+POWER_UP_WARNING_MS = 5000
+MAX_LIFE_POWER_UPS_PER_MISSION = 4
 POWER_UP_MIN_INTERVAL_MS = 18000
 POWER_UP_MAX_INTERVAL_MS = 32000
 POWER_UP_COLOR = (88, 214, 141)
@@ -170,6 +177,7 @@ class FinalBoss:
     next_orbit_switch_time: int = 0
     shield_down_since: int | None = None
     next_shield_recharge_time: int | None = None
+    next_semi_boss_spawn_time: int = 0
 
 
 @dataclass
@@ -317,11 +325,7 @@ def player_shield_enabled(lesson_number):
 
 
 def final_boss_projectile_count(lesson_number):
-    if lesson_number > 20:
-        return 3
-    if lesson_number > 10:
-        return 2
-    return 1
+    return 3
 
 
 def mini_boss_numbers_for_lesson(lesson_number, drone_target):
@@ -474,13 +478,18 @@ def next_power_up_time(now):
     return now + random.randint(POWER_UP_MIN_INTERVAL_MS, POWER_UP_MAX_INTERVAL_MS)
 
 
-def spawn_power_up(screen, valid_keys, now, shield_enabled=False, shield_charges=0):
+def spawn_power_up(screen, valid_keys, now, shield_enabled=False, shield_charges=0, life_enabled=True):
     width, height = screen.get_size()
     margin = 90
     power_up_keys = [key for key in valid_keys if len(key) == 1 and key.isalpha()] or list(valid_keys)
     keys = random.choices(power_up_keys, k=2)
     can_spawn_shield = shield_enabled and shield_charges < PLAYER_SHIELD_MAX_CHARGES
-    kind = "shield" if can_spawn_shield and random.random() < 0.5 else "life"
+    if can_spawn_shield and (not life_enabled or random.random() < 0.5):
+        kind = "shield"
+    elif life_enabled:
+        kind = "life"
+    else:
+        return None
     return PowerUp(
         pos=pygame.Vector2(
             random.randint(margin, max(margin, width - margin)),
@@ -490,6 +499,31 @@ def spawn_power_up(screen, valid_keys, now, shield_enabled=False, shield_charges
         expires_at=now + POWER_UP_DURATION_MS,
         kind=kind,
     )
+
+
+def spawn_final_boss_semi_boss(drones, final_boss, center, valid_keys):
+    direction = center - final_boss.pos
+    if direction.length_squared() == 0:
+        direction = pygame.Vector2(1, 0)
+    direction = direction.normalize()
+    spawn_pos = final_boss.pos.copy()
+    target_pos = final_boss.pos + direction * (final_boss.radius + MEGA_DRONE_RADIUS * 2.4)
+    strafe_axis = pygame.Vector2(-direction.y, direction.x)
+    drone = Drone(
+        pos=spawn_pos,
+        letter=random.choice(valid_keys),
+        hp=MEGA_DRONE_HP,
+        max_hp=MEGA_DRONE_HP,
+        radius=MEGA_DRONE_RADIUS,
+        speed=random.uniform(38, 52),
+        is_mega=True,
+        target_pos=target_pos,
+        strafe_axis=strafe_axis,
+        strafe_direction=random.choice((-1, 1)),
+        level_value=0,
+    )
+    drones.append(drone)
+    return drone
 
 
 def handle_power_up_key(power_up, pressed_key):
@@ -682,52 +716,46 @@ def polygon_points(center, radius, sides, rotation=-math.pi / 2):
     ]
 
 
-def spawn_final_boss(screen, now, valid_keys):
-    center = screen_center(screen)
-    spawn_pos = pygame.Vector2(center.x, 128)
-    target_pos = spawn_pos.lerp(center, 0.5)
+def spawn_final_boss(screen, now, valid_keys, player_center):
+    width, height = screen.get_size()
+    spawn_pos = pygame.Vector2(-FINAL_BOSS_RADIUS - 28, height / 2)
+    target_x = spawn_pos.x + (player_center.x - spawn_pos.x) * FINAL_BOSS_ENTRY_PROGRESS
+    target_pos = pygame.Vector2(target_x, height / 2)
     return FinalBoss(
         pos=spawn_pos,
         target_pos=target_pos,
         letter=random.choice(valid_keys),
-        orbit_angle=math.atan2(target_pos.y - center.y, target_pos.x - center.x),
-        orbit_radius=target_pos.distance_to(center) * FINAL_BOSS_ORBIT_DISTANCE_SCALE,
+        orbit_angle=0,
+        orbit_radius=0,
         orbit_direction=random.choice((-1, 1)),
-        next_shot_time=now + FINAL_BOSS_ATTACK_INTERVAL_MS,
-        next_orbit_switch_time=now + random.randint(FINAL_BOSS_ORBIT_SWITCH_MIN_MS, FINAL_BOSS_ORBIT_SWITCH_MAX_MS),
+        next_shot_time=0,
+        next_orbit_switch_time=0,
+        next_semi_boss_spawn_time=now + FINAL_BOSS_SEMI_BOSS_FIRST_SPAWN_MS,
     )
 
 
 def update_final_boss_movement(final_boss, screen, dt, now):
-    center = screen_center(screen)
+    width, height = screen.get_size()
     if not final_boss.is_orbiting:
         travel = final_boss.target_pos - final_boss.pos
         distance = travel.length()
         if distance <= FINAL_BOSS_APPROACH_SPEED * dt:
             final_boss.pos = final_boss.target_pos.copy()
             final_boss.is_orbiting = True
-            final_boss.orbit_angle = math.atan2(final_boss.pos.y - center.y, final_boss.pos.x - center.x)
-            final_boss.orbit_radius = max(90, final_boss.pos.distance_to(center) * FINAL_BOSS_ORBIT_DISTANCE_SCALE)
-            final_boss.pos = center + pygame.Vector2(
-                math.cos(final_boss.orbit_angle),
-                math.sin(final_boss.orbit_angle),
-            ) * final_boss.orbit_radius
+            final_boss.orbit_angle = 0 if final_boss.orbit_direction > 0 else math.pi
         elif distance > 0:
             final_boss.pos += travel.normalize() * FINAL_BOSS_APPROACH_SPEED * dt
         return
 
-    if now >= final_boss.next_orbit_switch_time:
-        final_boss.orbit_direction *= -1
-        final_boss.next_orbit_switch_time = now + random.randint(
-            FINAL_BOSS_ORBIT_SWITCH_MIN_MS,
-            FINAL_BOSS_ORBIT_SWITCH_MAX_MS,
-        )
-
     final_boss.orbit_angle += final_boss.orbit_direction * math.tau * dt / FINAL_BOSS_ORBIT_SECONDS
-    final_boss.pos = center + pygame.Vector2(
-        math.cos(final_boss.orbit_angle),
-        math.sin(final_boss.orbit_angle),
-    ) * final_boss.orbit_radius
+    min_y = height * FINAL_BOSS_VERTICAL_MIN_RATIO + final_boss.radius
+    max_y = height * FINAL_BOSS_VERTICAL_MAX_RATIO - final_boss.radius
+    center_y = (min_y + max_y) / 2
+    amplitude = max(0, (max_y - min_y) / 2)
+    final_boss.pos = pygame.Vector2(
+        final_boss.target_pos.x,
+        center_y + math.sin(final_boss.orbit_angle) * amplitude,
+    )
 
 
 def update_final_boss_shield(final_boss, now):
@@ -758,13 +786,19 @@ def fire_final_boss_drones(drones, final_boss, center, valid_keys, count=1):
     if direction.length_squared() == 0:
         direction = pygame.Vector2(0, 1)
     direction = direction.normalize()
-    spread_step = math.radians(14)
+    side = pygame.Vector2(-direction.y, direction.x)
+    spread_step = math.radians(24)
     start_angle = -spread_step * (count - 1) / 2
     for index in range(count):
         shot_direction = direction.rotate_rad(start_angle + spread_step * index)
+        side_offset = side * ((index - (count - 1) / 2) * BOSS_SHOT_IMAGE_RADIUS * 1.35)
         drones.append(
             Drone(
-                pos=final_boss.pos + shot_direction * (final_boss.radius + BOSS_SHOT_IMAGE_RADIUS + 6),
+                pos=(
+                    final_boss.pos
+                    + shot_direction * (final_boss.radius + BOSS_SHOT_IMAGE_RADIUS + 6)
+                    + side_offset
+                ),
                 letter=random.choice(valid_keys),
                 hp=1,
                 max_hp=1,
@@ -873,8 +907,9 @@ def draw_mega_shot(screen, mega_shot, shot_image=None):
         pygame.draw.circle(screen, (255, 255, 255), mega_shot.pos, mega_shot.radius, 2)
 
 
-def draw_ship(screen, turret_angle, pod_rotation, turret_image=None, pod_image=None):
-    center = screen_center(screen)
+def draw_ship(screen, turret_angle, pod_rotation, turret_image=None, pod_image=None, center=None):
+    if center is None:
+        center = screen_center(screen)
     if pod_image is not None:
         rotated_pod = pygame.transform.rotozoom(pod_image, -math.degrees(pod_rotation), 1.0)
         screen.blit(rotated_pod, rotated_pod.get_rect(center=center))
@@ -1246,6 +1281,7 @@ class MissionEngine:
         self.laser_sound = load_sound(self.sfx_dir / "laser.ogg", 0.55)
         self.explosion_sound = load_sound(self.sfx_dir / "explosion.ogg", 0.75)
         self.health_sound = load_sound(self.sfx_dir / "health.ogg", 0.85)
+        self.shield_up_sound = load_sound(self.sfx_dir / "shield_up.wav", 0.85)
         self.split_sound = load_sound(self.sfx_dir / "split.ogg", 0.75)
         self.boss_sound = load_sound(self.sfx_dir / "boss.ogg", 0.85)
         self.victory_sound = load_sound(self.sfx_dir / "victory.wav", 0.9)
@@ -1281,6 +1317,7 @@ class MissionEngine:
         self.pending_shots = []
         self.shot_trails = []
         self.power_up = None
+        self.life_power_ups_spawned = 0
         self.final_boss = None
         self.particles = []
         self.stars = create_star_field()
@@ -1294,6 +1331,7 @@ class MissionEngine:
         self._save_player_resources()
         self.turret_angle = -math.pi / 2
         self.pod_rotation = 0
+        self.player_center = screen_center(self.screen)
         self.space_held = False
         self.mega_charge_blocks = MEGA_CHARGE_MAX_BLOCKS
         self.next_mega_recharge_time = 0
@@ -1350,6 +1388,7 @@ class MissionEngine:
         self.active_shield_hits = PLAYER_ACTIVE_SHIELD_EXTRA_HITS
         self.active_shield_expires_at = now + PLAYER_ACTIVE_SHIELD_DURATION_MS
         self._save_player_resources()
+        play_sound(self.shield_up_sound)
         return True
 
     def _finish(self, result):
@@ -1362,9 +1401,29 @@ class MissionEngine:
             self._add_lifetime_score()
         return draw_end_screen(self.screen, self.clock, won, self.destroyed, self.drone_target, self.score)
 
+    def _boss_player_target_center(self):
+        width, height = self.screen.get_size()
+        return pygame.Vector2(width * FINAL_BOSS_PLAYER_X_RATIO, height / 2)
+
+    def _update_player_center(self, dt):
+        target = self._boss_player_target_center() if self.final_boss is not None else screen_center(self.screen)
+        travel = target - self.player_center
+        distance = travel.length()
+        max_step = FINAL_BOSS_PLAYER_PAN_SPEED * dt
+        if distance <= max_step or distance == 0:
+            self.player_center = target
+        else:
+            self.player_center += travel.normalize() * max_step
+
+    def _boss_perspective_ready(self):
+        if self.final_boss is None:
+            return False
+        return self.player_center.distance_to(self._boss_player_target_center()) <= 2
+
     def _begin_frame(self):
         dt = self.clock.tick(60) / 1000
         now = pygame.time.get_ticks()
+        self._update_player_center(dt)
         self.pod_rotation = (self.pod_rotation + math.tau * dt / POD_ROTATION_SECONDS) % math.tau
         if now >= self.next_spawn_rate_change_time:
             self.current_spawn_interval_ms = random_spawn_interval(self.lesson_number)
@@ -1380,7 +1439,23 @@ class MissionEngine:
                 )
         return dt, now
 
+    def _start_final_boss_encounter(self, now):
+        for drone in self.drones:
+            explode(self.particles, drone.pos, 12)
+        self.drones.clear()
+        while self.pending_shots:
+            release_pending_shot(self.pending_shots.pop(0))
+        self.bullets.clear()
+        self.mega_shots.clear()
+        self.final_boss = spawn_final_boss(self.screen, now, self.target_keys, self._boss_player_target_center())
+        play_sound(self.boss_sound)
+
     def _spawn_entities(self, now):
+        has_no_standard_play_drones = (
+            self.final_boss is None
+            and not self.drones
+            and self.destroyed < self.drone_target
+        )
         if (
             self.final_boss is None
             and should_spawn_mission_drone(
@@ -1390,7 +1465,7 @@ class MissionEngine:
                 self.drones,
                 self.drone_target,
             )
-            and now >= self.next_spawn_time
+            and (now >= self.next_spawn_time or has_no_standard_play_drones)
         ):
             drone, self.spawned_count = spawn_next_drone(
                 self.drones,
@@ -1414,7 +1489,12 @@ class MissionEngine:
                 now,
                 player_shield_enabled(self.lesson_number),
                 self.shield_charges,
+                self.life_power_ups_spawned < MAX_LIFE_POWER_UPS_PER_MISSION,
             )
+            if self.power_up is None:
+                self.next_power_up_spawn_time = next_power_up_time(now)
+            elif self.power_up.kind == "life":
+                self.life_power_ups_spawned += 1
 
         if (
             final_boss_enabled(self.lesson_number)
@@ -1422,8 +1502,7 @@ class MissionEngine:
             and self.destroyed >= self.drone_target
             and active_mini_boss_count(self.drones) == 0
         ):
-            self.final_boss = spawn_final_boss(self.screen, now, self.target_keys)
-            play_sound(self.boss_sound)
+            self._start_final_boss_encounter(now)
 
     def _draw_frame(self, now):
         self.screen = pygame.display.get_surface()
@@ -1470,10 +1549,10 @@ class MissionEngine:
             label_font = pygame.font.SysFont("arial", label_size, bold=True)
             render_key_label(self.screen, drone.letter, label_font, (8, 10, 18), drone.pos, drone.radius * 1.45)
 
-        draw_ship(self.screen, self.turret_angle, self.pod_rotation, self.turret_image, self.pod_image)
+        draw_ship(self.screen, self.turret_angle, self.pod_rotation, self.turret_image, self.pod_image, self.player_center)
         draw_active_player_shield(
             self.screen,
-            screen_center(self.screen),
+            self.player_center,
             self.active_shield_expires_at,
             self.active_shield_hits,
             now,
@@ -1504,7 +1583,7 @@ class MissionEngine:
         while self.pending_shots and not target_is_available(self.pending_shots[0].target, self.drones, self.final_boss):
             release_pending_shot(self.pending_shots.pop(0))
         if self.pending_shots:
-            center = screen_center(self.screen)
+            center = self.player_center
             next_shot = self.pending_shots[0]
             aim_angle = target_angle(next_shot.target, center)
             self.turret_angle = rotate_toward_angle(self.turret_angle, aim_angle, TURRET_TURN_SPEED * dt)
@@ -1522,19 +1601,35 @@ class MissionEngine:
         update_final_boss_movement(self.final_boss, self.screen, dt, now)
         self.final_boss.rotation = (self.final_boss.rotation + math.tau * dt / FINAL_BOSS_ROTATION_SECONDS) % math.tau
         update_final_boss_shield(self.final_boss, now)
-        if self.final_boss.is_orbiting and now >= self.final_boss.next_shot_time:
+        if self.final_boss.is_orbiting and self._boss_perspective_ready() and self.final_boss.next_shot_time == 0:
+            self.final_boss.next_shot_time = now + FINAL_BOSS_ATTACK_INTERVAL_MS
+        if (
+            self.final_boss.is_orbiting
+            and self._boss_perspective_ready()
+            and self.final_boss.next_shot_time
+            and now >= self.final_boss.next_shot_time
+        ):
             fire_final_boss_drones(
                 self.drones,
                 self.final_boss,
-                screen_center(self.screen),
+                self.player_center,
                 self.target_keys,
                 final_boss_projectile_count(self.lesson_number),
             )
             self.final_boss.next_shot_time = now + FINAL_BOSS_ATTACK_INTERVAL_MS
+        if self.final_boss.next_semi_boss_spawn_time and now >= self.final_boss.next_semi_boss_spawn_time:
+            spawn_final_boss_semi_boss(
+                self.drones,
+                self.final_boss,
+                self.player_center,
+                self.target_keys,
+            )
+            play_sound(self.boss_sound)
+            self.final_boss.next_semi_boss_spawn_time = now + FINAL_BOSS_SEMI_BOSS_SPAWN_INTERVAL_MS
 
     def _update_drones(self, now, dt):
         for drone in self.drones[:]:
-            center = screen_center(self.screen)
+            center = self.player_center
             update_drone_position(drone, center, dt)
             drone.rotation = (drone.rotation + drone_rotation_radians_per_second(drone) * dt) % math.tau
             if drone.is_mega and now >= drone.next_shot_time:
@@ -1635,7 +1730,7 @@ class MissionEngine:
                                 self.final_boss,
                                 self.pending_shots,
                                 pressed_key,
-                                screen_center(self.screen),
+                                self.player_center,
                                 self.mega_charge_blocks,
                                 now,
                             )
@@ -1643,7 +1738,7 @@ class MissionEngine:
                                 self.mega_charge_blocks = 0
                                 self.next_mega_recharge_time = now + MEGA_RECHARGE_DELAY_MS
                                 continue
-                        queue_shot_at(self.drones, self.pending_shots, pressed_key, screen_center(self.screen), now)
+                        queue_shot_at(self.drones, self.pending_shots, pressed_key, self.player_center, now)
                 if event.type == pygame.KEYUP:
                     if event.key == pygame.K_SPACE:
                         self.space_held = False
