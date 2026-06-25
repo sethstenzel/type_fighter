@@ -7,7 +7,7 @@ import pygame
 
 from lessons.lesson_config import LESSON_PROGRESS
 from lessons.key_render import render_inline_text
-from lessons.lesson_1.lesson_1_mission import create_star_field, draw_star_field, update_star_field
+from lessons.mission_engine import create_star_field, draw_star_field, update_star_field
 
 
 SCREEN_SIZE = (1024, 768)
@@ -16,6 +16,8 @@ BG_COLOR = (8, 12, 24)
 TEXT_COLOR = (230, 238, 255)
 MUTED_TEXT = (138, 150, 178)
 ACCENT = (72, 209, 204)
+STARTING_LIVES = 3
+PLAYER_SHIELD_MAX_CHARGES = 3
 
 BASE_DIR = Path(__file__).resolve().parent
 PLAYERS_PATH = BASE_DIR.parent / "players.json"
@@ -65,7 +67,20 @@ def load_players():
                 if isinstance(lesson, int) and 1 <= lesson <= len(LESSONS)
             }
         )
-        players.append({"name": name[:24], "completed_lessons": completed_lessons})
+        lives = item.get("lives", STARTING_LIVES)
+        if not isinstance(lives, int):
+            lives = STARTING_LIVES
+        shield_charges = item.get("shield_charges", 0)
+        if not isinstance(shield_charges, int):
+            shield_charges = 0
+        players.append(
+            {
+                "name": name[:24],
+                "completed_lessons": completed_lessons,
+                "lives": max(1, lives),
+                "shield_charges": max(0, min(PLAYER_SHIELD_MAX_CHARGES, shield_charges)),
+            }
+        )
         seen_names.add(name.lower())
     return players
 
@@ -123,7 +138,7 @@ def toggle_fullscreen():
     return pygame.display.set_mode(SCREEN_SIZE, WINDOW_FLAGS)
 
 
-def run_lesson(screen, clock, lesson):
+def run_lesson(screen, clock, lesson, player):
     intro = load_lesson_module(lesson["intro_module"])
     mission = load_lesson_module(lesson["mission_module"])
 
@@ -132,7 +147,7 @@ def run_lesson(screen, clock, lesson):
         return intro_result
 
     while True:
-        result = mission.run(screen, clock, BASE_DIR)
+        result = mission.run(screen, clock, BASE_DIR, player)
         if result != "restart":
             return result
 
@@ -162,7 +177,7 @@ def create_player_screen(screen, clock, players):
                     elif any(player["name"].lower() == cleaned.lower() for player in players):
                         message = "That player already exists."
                     else:
-                        player = {"name": cleaned, "completed_lessons": []}
+                        player = {"name": cleaned, "completed_lessons": [], "lives": STARTING_LIVES, "shield_charges": 0}
                         players.append(player)
                         save_players(players)
                         return player
@@ -318,7 +333,8 @@ def menu_loop(screen, clock, players, player):
                 if event.key in (pygame.K_RETURN, pygame.K_SPACE):
                     if selected < unlocked_count:
                         completed_index = selected
-                        result = run_lesson(screen, clock, LESSONS[completed_index])
+                        result = run_lesson(screen, clock, LESSONS[completed_index], player)
+                        save_players(players)
                         if result == "quit":
                             return "quit"
                         if result == "won":
