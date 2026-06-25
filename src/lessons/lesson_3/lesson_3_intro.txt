@@ -1,25 +1,19 @@
-Welcome back, pilot ... lesson 3 is ready.
+Welcome back, pilot ... looks like you are getting the hang of this.
 
-Your new training keys are S and L.
+Your new training keys are 'S' and 'L'.
 
-These keys use: Left ring, right ring.
+These keys use your left ring finger and right ringer.
 
-You are not starting over. Every key from the earlier lessons is still part of your control panel.
+You are not starting over. Every key from the earlier lessons will still be needed.
 Your job is to add these two new keys while keeping your hands anchored and your eyes forward.
 
 Before launch, place both hands on the home row.
-Find F and J by touch if you need to reset your position.
-Then prepare the fingers for S and L.
+Find 'F' and 'J' by touch if you need to reset your position.
+Then prepare the fingers for 'S' and 'L'.
 
-When a drone shows one of the new keys, press it with the correct finger.
-When a drone shows a key from an earlier lesson, use the finger you already trained.
-After every key press, return to your ready position.
-
-Do not chase the keyboard with your whole hand.
 Do not look down if you can help it.
 Small movements, steady hands, eyes forward.
 
-In this mission, drones may use all keys you have learned so far, with extra focus on S and L.
-Stay calm, read the drone, press the key, and get back to ready position.
+In this mission, drones will use all keys you have learned so far, with extra focus on 'S' and 'L'.
 
-To launch the training simulation, use either thumb to press the ␣.
+To launch the training simulation, use either thumb to press the Spacebar.
