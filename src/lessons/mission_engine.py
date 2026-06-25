@@ -25,15 +25,16 @@ SHOT_TRAIL_COLOR = (92, 190, 255)
 SHIP_COLOR = (112, 170, 255)
 EXPLOSION_COLOR = (255, 218, 125)
 POD_ROTATION_SECONDS = 15
-POD_IMAGE_SIZE = 163
-PLAYER_COLLISION_RADIUS = 29
-TURRET_IMAGE_SIZE = 86
+POD_IMAGE_SIZE = 204
+PLAYER_COLLISION_RADIUS = 36
+TURRET_IMAGE_SIZE = 108
 DRONE_PIXELS_PER_ROTATION = 60
 TURRET_TURN_SPEED = 13
 TURRET_FIRE_ANGLE_THRESHOLD = 0.08
 TURRET_FIRE_DELAY_MS = 90
 SHOT_IMAGE_SIZE = 22
 SHOT_TRAIL_INTERVAL_MS = 18
+SHOT_ROTATIONS_PER_SECOND = 2
 
 START_SPAWN_INTERVAL_MS = 6000
 MIN_SPAWN_INTERVAL_MS = 2000
@@ -126,6 +127,7 @@ class Bullet:
     vel: pygame.Vector2
     target: Drone | None
     next_trail_time: int = 0
+    rotation: float = 0
 
 
 @dataclass
@@ -135,6 +137,7 @@ class MegaShot:
     charge_level: int
     target: object | None
     radius: int = 10
+    rotation: float = 0
 
 
 @dataclass
@@ -845,12 +848,26 @@ def draw_shot_trails(screen, shot_trails):
 def draw_bullet(screen, bullet, shot_image=None):
     if shot_image is not None:
         image = shot_image
+        angle = math.degrees(bullet.rotation)
         if bullet.vel.length_squared() > 0:
-            angle = math.degrees(math.atan2(-bullet.vel.y, bullet.vel.x))
-            image = pygame.transform.rotozoom(shot_image, angle, 1.0)
+            angle += math.degrees(math.atan2(-bullet.vel.y, bullet.vel.x))
+        image = pygame.transform.rotozoom(shot_image, angle, 1.0)
         screen.blit(image, image.get_rect(center=bullet.pos))
     else:
         pygame.draw.circle(screen, BULLET_COLOR, bullet.pos, 5)
+
+
+def draw_mega_shot(screen, mega_shot, shot_image=None):
+    if shot_image is not None:
+        angle = math.degrees(mega_shot.rotation)
+        if mega_shot.vel.length_squared() > 0:
+            angle += math.degrees(math.atan2(-mega_shot.vel.y, mega_shot.vel.x))
+        scale = max(1.0, (mega_shot.radius * 2) / SHOT_IMAGE_SIZE)
+        image = pygame.transform.rotozoom(shot_image, angle, scale)
+        screen.blit(image, image.get_rect(center=mega_shot.pos))
+    else:
+        pygame.draw.circle(screen, MEGA_SHOT_COLOR, mega_shot.pos, mega_shot.radius)
+        pygame.draw.circle(screen, (255, 255, 255), mega_shot.pos, mega_shot.radius, 2)
 
 
 def draw_ship(screen, turret_angle, pod_rotation, turret_image=None, pod_image=None):
@@ -1274,12 +1291,22 @@ class MissionEngine:
         self.player["lives"] = max(1, self.lives)
         self.player["shield_charges"] = max(0, min(PLAYER_SHIELD_MAX_CHARGES, self.shield_charges))
 
+    def _add_lifetime_score(self):
+        if self.player is None:
+            return
+        lifetime_score = self.player.get("lifetime_score", 0)
+        if not isinstance(lifetime_score, int):
+            lifetime_score = 0
+        self.player["lifetime_score"] = max(0, lifetime_score) + self.score
+
     def _finish(self, result):
         self._save_player_resources()
         return result
 
     def _show_end_screen(self, won):
         self._save_player_resources()
+        if won:
+            self._add_lifetime_score()
         return draw_end_screen(self.screen, self.clock, won, self.destroyed, self.drone_target, self.score)
 
     def _begin_frame(self):
@@ -1362,8 +1389,7 @@ class MissionEngine:
             draw_bullet(self.screen, bullet, self.shot_image)
 
         for mega_shot in self.mega_shots:
-            pygame.draw.circle(self.screen, MEGA_SHOT_COLOR, mega_shot.pos, mega_shot.radius)
-            pygame.draw.circle(self.screen, (255, 255, 255), mega_shot.pos, mega_shot.radius, 2)
+            draw_mega_shot(self.screen, mega_shot, self.shot_image)
 
         draw_power_up(self.screen, self.power_up, now)
         draw_final_boss(self.screen, self.final_boss, self.final_boss_image)
@@ -1500,12 +1526,14 @@ class MissionEngine:
                     if event.key == pygame.K_F11:
                         self.screen = toggle_fullscreen()
                     if event.key == pygame.K_ESCAPE:
+                        pygame.mouse.set_visible(True)
                         if self.bg_music_channel is not None:
                             self.bg_music_channel.pause()
                         if pygame.mixer.get_init():
                             pygame.mixer.music.pause()
                         pause_result = pause_menu(self.screen, self.clock)
                         if pause_result == "resume":
+                            pygame.mouse.set_visible(False)
                             if self.bg_music_channel is not None:
                                 self.bg_music_channel.unpause()
                             if pygame.mixer.get_init():
@@ -1581,6 +1609,7 @@ class MissionEngine:
                 return result
 
             for bullet in self.bullets[:]:
+                bullet.rotation = (bullet.rotation + math.tau * SHOT_ROTATIONS_PER_SECOND * dt) % math.tau
                 if bullet.target not in self.drones:
                     bullet.target = None
                     add_shot_trail(self.shot_trails, bullet, now)
@@ -1624,6 +1653,7 @@ class MissionEngine:
                 bullet.pos += bullet.vel * dt
 
             for mega_shot in self.mega_shots[:]:
+                mega_shot.rotation = (mega_shot.rotation + math.tau * SHOT_ROTATIONS_PER_SECOND * dt) % math.tau
                 if isinstance(mega_shot.target, Drone) and mega_shot.target not in self.drones:
                     mega_shot.target = None
 
@@ -1687,4 +1717,9 @@ class MissionEngine:
 
 
 def run_mission(screen, clock, base_dir, lesson_dir_name, valid_keys, player=None):
-    return MissionEngine(screen, clock, base_dir, lesson_dir_name, valid_keys, player).run()
+    previous_mouse_visible = pygame.mouse.get_visible()
+    pygame.mouse.set_visible(False)
+    try:
+        return MissionEngine(screen, clock, base_dir, lesson_dir_name, valid_keys, player).run()
+    finally:
+        pygame.mouse.set_visible(previous_mouse_visible)
