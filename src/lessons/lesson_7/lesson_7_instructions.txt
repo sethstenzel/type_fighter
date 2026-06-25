@@ -12,6 +12,8 @@ Press the matching key to fire at the drone.
 Some drones take more than one shot to destroy.
 Your ammo is limited, so do not spam keys.
 
+Shield systems are now available. If a drone reaches your pod while you have a shield charge, the shield blocks the hit before you lose a life.
+
 Keep your hands anchored, press with the correct finger, and return to ready position after every shot.
 
 Here they come!

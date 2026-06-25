@@ -11,9 +11,7 @@ Press the matching key to fire at the drone.
 
 Some drones take more than one shot to destroy.
 
-Shield training begins in this mission.
-
-Your pod starts with three shield charges. If a drone reaches your pod, one shield charge blocks the hit before you lose a life.
+Your shield system is still active. If a drone reaches your pod while you have a shield charge, the shield blocks the hit before you lose a life.
 
 The shield bar appears under the mega shot bar. One shield charge recharges every 20 seconds.
 

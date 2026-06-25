@@ -72,7 +72,12 @@ MINI_BOSS_STRAFE_RANGE = 95
 MINI_BOSS_STRAFE_SPEED_SCALE = 0.45
 MINI_BOSS_CENTER_DISTANCE_SCALE = 0.25
 PLAYER_SHIELD_MAX_CHARGES = 3
+PLAYER_SHIELD_START_LESSON = 7
 PLAYER_SHIELD_RECHARGE_MS = 20000
+PLAYER_ACTIVE_SHIELD_COLOR = (116, 211, 255)
+PLAYER_ACTIVE_SHIELD_DURATION_MS = 9000
+PLAYER_ACTIVE_SHIELD_FADE_START_MS = 6000
+PLAYER_ACTIVE_SHIELD_EXTRA_HITS = 2
 MEGA_CHARGE_MAX_BLOCKS = 5
 MEGA_RECHARGE_INTERVAL_MS = 1000
 MEGA_RECHARGE_DELAY_MS = 1000
@@ -308,7 +313,7 @@ def mission_target_keys(valid_keys, lesson_number):
 
 
 def player_shield_enabled(lesson_number):
-    return lesson_number >= 7
+    return lesson_number >= PLAYER_SHIELD_START_LESSON
 
 
 def final_boss_projectile_count(lesson_number):
@@ -343,8 +348,6 @@ def active_level_value(drones):
 
 
 def should_spawn_mission_drone(lesson_number, spawned_count, destroyed, drones, drone_target):
-    if final_boss_enabled(lesson_number):
-        return spawned_count < drone_target
     return spawned_count < drone_target or destroyed + active_level_value(drones) < drone_target
 
 
@@ -1050,6 +1053,30 @@ def draw_player_shield_bar(screen, font, charges, enabled, y_offset=0):
     screen.blit(text_surface, text_surface.get_rect(center=(width / 2, 70 + y_offset)))
 
 
+def draw_active_player_shield(screen, center, expires_at, hits_remaining, now):
+    if hits_remaining <= 0 or now >= expires_at:
+        return
+
+    fade_start_at = expires_at - (PLAYER_ACTIVE_SHIELD_DURATION_MS - PLAYER_ACTIVE_SHIELD_FADE_START_MS)
+    if now <= fade_start_at:
+        alpha = 175
+    else:
+        fade_duration = max(1, expires_at - fade_start_at)
+        alpha = int(175 * max(0, expires_at - now) / fade_duration)
+
+    radius = POD_IMAGE_SIZE // 2 + 9
+    size = radius * 2 + 8
+    shield_surface = pygame.Surface((size, size), pygame.SRCALPHA)
+    pygame.draw.circle(
+        shield_surface,
+        (*PLAYER_ACTIVE_SHIELD_COLOR, alpha),
+        (size // 2, size // 2),
+        radius,
+        3,
+    )
+    screen.blit(shield_surface, shield_surface.get_rect(center=center))
+
+
 def draw_hud(screen, font, destroyed, drone_target, score, lives):
     width, _ = screen.get_size()
     left = f"Drones destroyed: {int(destroyed)}/{drone_target}"
@@ -1262,6 +1289,8 @@ class MissionEngine:
         self.score = 0
         self.lives = max(STARTING_LIVES, self._player_int("lives", STARTING_LIVES, 1))
         self.shield_charges = self._player_int("shield_charges", 0, 0, PLAYER_SHIELD_MAX_CHARGES)
+        self.active_shield_hits = 0
+        self.active_shield_expires_at = 0
         self._save_player_resources()
         self.turret_angle = -math.pi / 2
         self.pod_rotation = 0
@@ -1298,6 +1327,30 @@ class MissionEngine:
         if not isinstance(lifetime_score, int):
             lifetime_score = 0
         self.player["lifetime_score"] = max(0, lifetime_score) + self.score
+
+    def _shield_is_active(self, now):
+        return self.active_shield_hits > 0 and now < self.active_shield_expires_at
+
+    def _clear_active_shield(self):
+        self.active_shield_hits = 0
+        self.active_shield_expires_at = 0
+
+    def _absorb_player_hit_with_shield(self, now):
+        if self._shield_is_active(now):
+            self.active_shield_hits -= 1
+            if self.active_shield_hits <= 0:
+                self._clear_active_shield()
+            return True
+
+        self._clear_active_shield()
+        if not player_shield_enabled(self.lesson_number) or self.shield_charges <= 0:
+            return False
+
+        self.shield_charges -= 1
+        self.active_shield_hits = PLAYER_ACTIVE_SHIELD_EXTRA_HITS
+        self.active_shield_expires_at = now + PLAYER_ACTIVE_SHIELD_DURATION_MS
+        self._save_player_resources()
+        return True
 
     def _finish(self, result):
         self._save_player_resources()
@@ -1366,7 +1419,7 @@ class MissionEngine:
         if (
             final_boss_enabled(self.lesson_number)
             and self.final_boss is None
-            and self.spawned_count >= self.drone_target
+            and self.destroyed >= self.drone_target
             and active_mini_boss_count(self.drones) == 0
         ):
             self.final_boss = spawn_final_boss(self.screen, now, self.target_keys)
@@ -1374,6 +1427,8 @@ class MissionEngine:
 
     def _draw_frame(self, now):
         self.screen = pygame.display.get_surface()
+        if self.active_shield_hits > 0 and now >= self.active_shield_expires_at:
+            self._clear_active_shield()
         self.screen.fill(BG_COLOR)
         width, height = self.screen.get_size()
         draw_star_field(self.screen, self.stars)
@@ -1416,6 +1471,13 @@ class MissionEngine:
             render_key_label(self.screen, drone.letter, label_font, (8, 10, 18), drone.pos, drone.radius * 1.45)
 
         draw_ship(self.screen, self.turret_angle, self.pod_rotation, self.turret_image, self.pod_image)
+        draw_active_player_shield(
+            self.screen,
+            screen_center(self.screen),
+            self.active_shield_expires_at,
+            self.active_shield_hits,
+            now,
+        )
         mega_text = ""
         mega_active = False
         if mega_shot_enabled(self.lesson_number):
@@ -1482,9 +1544,7 @@ class MissionEngine:
                 self.drones.remove(drone)
                 explode(self.particles, drone.pos, 12)
                 play_sound(self.explosion_sound)
-                if player_shield_enabled(self.lesson_number) and self.shield_charges > 0:
-                    self.shield_charges -= 1
-                    self._save_player_resources()
+                if self._absorb_player_hit_with_shield(now):
                     continue
                 self.lives -= 1
                 self._save_player_resources()

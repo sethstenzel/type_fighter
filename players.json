@@ -13,8 +13,16 @@
       9,
       10
     ],
-    "lives": 14,
-    "shield_charges": 0
+    "lives": 21,
+    "shield_charges": 0,
+    "lifetime_score": 28400,
+    "achievements": [],
+    "credits": 0,
+    "pod": {
+      "color": "blue",
+      "type": "standard",
+      "upgrades": []
+    }
   },
   {
     "name": "Ethen",
@@ -26,7 +34,15 @@
       5
     ],
     "lives": 3,
-    "shield_charges": 0
+    "shield_charges": 0,
+    "lifetime_score": 0,
+    "achievements": [],
+    "credits": 0,
+    "pod": {
+      "color": "blue",
+      "type": "standard",
+      "upgrades": []
+    }
   },
   {
     "name": "Christopher",
@@ -35,7 +51,15 @@
       2
     ],
     "lives": 3,
-    "shield_charges": 0
+    "shield_charges": 0,
+    "lifetime_score": 0,
+    "achievements": [],
+    "credits": 0,
+    "pod": {
+      "color": "blue",
+      "type": "standard",
+      "upgrades": []
+    }
   },
   {
     "name": "Aryanna",
@@ -44,7 +68,15 @@
       2
     ],
     "lives": 3,
-    "shield_charges": 0
+    "shield_charges": 0,
+    "lifetime_score": 0,
+    "achievements": [],
+    "credits": 0,
+    "pod": {
+      "color": "blue",
+      "type": "standard",
+      "upgrades": []
+    }
   },
   {
     "name": "Arturo",
@@ -52,7 +84,15 @@
       1
     ],
     "lives": 3,
-    "shield_charges": 0
+    "shield_charges": 0,
+    "lifetime_score": 0,
+    "achievements": [],
+    "credits": 0,
+    "pod": {
+      "color": "blue",
+      "type": "standard",
+      "upgrades": []
+    }
   },
   {
     "name": "Mom",
@@ -69,6 +109,14 @@
       10
     ],
     "lives": 3,
-    "shield_charges": 0
+    "shield_charges": 0,
+    "lifetime_score": 0,
+    "achievements": [],
+    "credits": 0,
+    "pod": {
+      "color": "blue",
+      "type": "standard",
+      "upgrades": []
+    }
   }
 ]
