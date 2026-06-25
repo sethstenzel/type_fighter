@@ -9,6 +9,7 @@ from lessons.key_render import display_key, render_inline_center, render_inline_
 
 
 BASE_SCREEN_SIZE = (1024, 768)
+MIN_SCREEN_SIZE = (800, 600)
 BG_COLOR = (5, 9, 20)
 TEXT_COLOR = (232, 240, 255)
 MUTED_TEXT = (140, 154, 184)
@@ -33,7 +34,7 @@ TURRET_TURN_SPEED = 13
 TURRET_FIRE_ANGLE_THRESHOLD = 0.08
 TURRET_FIRE_DELAY_MS = 90
 SHOT_IMAGE_SIZE = 22
-SHOT_TRAIL_INTERVAL_MS = 18
+SHOT_TRAIL_INTERVAL_MS = 12
 SHOT_ROTATIONS_PER_SECOND = 2
 
 START_SPAWN_INTERVAL_MS = 6000
@@ -89,9 +90,9 @@ MEGA_RECHARGE_INTERVAL_MS = 1000
 MEGA_RECHARGE_DELAY_MS = 1000
 MEGA_SHIELD_MIN_LEVEL = 3
 MEGA_FINAL_KILL_LEVEL = 5
-POWER_UP_DURATION_MS = 10000
-POWER_UP_WARNING_MS = 5000
-MAX_LIFE_POWER_UPS_PER_MISSION = 4
+POWER_UP_DURATION_MS = 5000
+POWER_UP_WARNING_MS = 2000
+MAX_LIFE_POWER_UPS_PER_MISSION = 2
 POWER_UP_MIN_INTERVAL_MS = 18000
 POWER_UP_MAX_INTERVAL_MS = 32000
 POWER_UP_COLOR = (88, 214, 141)
@@ -150,6 +151,7 @@ class MegaShot:
     target: object | None
     radius: int = 10
     rotation: float = 0
+    next_trail_time: int = 0
 
 
 @dataclass
@@ -236,6 +238,16 @@ def toggle_fullscreen():
     return pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
 
 
+def enforce_min_window_size(screen):
+    if screen.get_flags() & pygame.FULLSCREEN:
+        return screen
+    width, height = screen.get_size()
+    min_width, min_height = MIN_SCREEN_SIZE
+    if width >= min_width and height >= min_height:
+        return screen
+    return pygame.display.set_mode((max(width, min_width), max(height, min_height)), pygame.RESIZABLE)
+
+
 def load_sound(path, volume=1.0):
     if not pygame.mixer.get_init():
         return None
@@ -308,20 +320,62 @@ def mega_shot_enabled(lesson_number):
     return lesson_number >= 5
 
 
+def player_mega_shot_available(player, lesson_number):
+    if mega_shot_enabled(lesson_number):
+        return True
+    if not isinstance(player, dict):
+        return False
+    completed = set(player.get("completed_lessons", []))
+    return all(number in completed for number in range(1, 5))
+
+
 def final_boss_enabled(lesson_number):
     return lesson_number >= 5
 
 
-def mission_target_keys(valid_keys, lesson_number):
+def mission_target_keys(valid_keys, lesson_number, mega_available=False):
     return tuple(
         key
         for key in valid_keys
-        if not (mega_shot_enabled(lesson_number) and key == "space")
+        if not ((mega_shot_enabled(lesson_number) or mega_available) and key == "space")
     )
 
 
 def player_shield_enabled(lesson_number):
     return lesson_number >= PLAYER_SHIELD_START_LESSON
+
+
+def player_shield_available(player, lesson_number):
+    if player_shield_enabled(lesson_number):
+        return True
+    if not isinstance(player, dict):
+        return False
+    completed = set(player.get("completed_lessons", []))
+    return all(number in completed for number in range(1, PLAYER_SHIELD_START_LESSON))
+
+
+def player_upgrade_ids(player):
+    if not isinstance(player, dict):
+        return set()
+    pod = player.get("pod", {})
+    upgrades = pod.get("upgrades", []) if isinstance(pod, dict) else []
+    ids = set()
+    for upgrade in upgrades:
+        if isinstance(upgrade, str):
+            ids.add(upgrade)
+        elif isinstance(upgrade, dict) and isinstance(upgrade.get("id"), str):
+            ids.add(upgrade["id"])
+    return ids
+
+
+def player_shield_max_charges(player):
+    max_charges = PLAYER_SHIELD_MAX_CHARGES
+    upgrades = player_upgrade_ids(player)
+    if "extra_shield_slot_1" in upgrades:
+        max_charges += 1
+    if "extra_shield_slot_2" in upgrades:
+        max_charges += 1
+    return max_charges
 
 
 def final_boss_projectile_count(lesson_number):
@@ -407,6 +461,11 @@ def spawn_position(screen):
     return pygame.Vector2(-margin, random.randint(0, height))
 
 
+def random_spawn_key(valid_keys, blocked_key=None):
+    available_keys = [key for key in valid_keys if key != blocked_key]
+    return random.choice(available_keys or list(valid_keys))
+
+
 def spawn_drone(drones, screen, destroyed, valid_keys, is_mega=False):
     pos = spawn_position(screen)
     hp = drone_hp()
@@ -430,7 +489,7 @@ def spawn_drone(drones, screen, destroyed, valid_keys, is_mega=False):
             strafe_axis = pygame.Vector2(-approach.y, approach.x)
     drone = Drone(
         pos=pos,
-        letter=random.choice(valid_keys),
+        letter=random_spawn_key(valid_keys),
         hp=hp,
         max_hp=hp,
         radius=MEGA_DRONE_RADIUS if is_mega else drone_radius_for_hp(hp),
@@ -478,12 +537,12 @@ def next_power_up_time(now):
     return now + random.randint(POWER_UP_MIN_INTERVAL_MS, POWER_UP_MAX_INTERVAL_MS)
 
 
-def spawn_power_up(screen, valid_keys, now, shield_enabled=False, shield_charges=0, life_enabled=True):
+def spawn_power_up(screen, valid_keys, now, shield_enabled=False, shield_charges=0, max_shield_charges=PLAYER_SHIELD_MAX_CHARGES, life_enabled=True):
     width, height = screen.get_size()
     margin = 90
     power_up_keys = [key for key in valid_keys if len(key) == 1 and key.isalpha()] or list(valid_keys)
     keys = random.choices(power_up_keys, k=2)
-    can_spawn_shield = shield_enabled and shield_charges < PLAYER_SHIELD_MAX_CHARGES
+    can_spawn_shield = shield_enabled and shield_charges < max_shield_charges
     if can_spawn_shield and (not life_enabled or random.random() < 0.5):
         kind = "shield"
     elif life_enabled:
@@ -511,7 +570,7 @@ def spawn_final_boss_semi_boss(drones, final_boss, center, valid_keys):
     strafe_axis = pygame.Vector2(-direction.y, direction.x)
     drone = Drone(
         pos=spawn_pos,
-        letter=random.choice(valid_keys),
+        letter=random_spawn_key(valid_keys, final_boss.letter),
         hp=MEGA_DRONE_HP,
         max_hp=MEGA_DRONE_HP,
         radius=MEGA_DRONE_RADIUS,
@@ -762,7 +821,7 @@ def update_final_boss_shield(final_boss, now):
     return
 
 
-def fire_mega_drone(drones, boss, center, valid_keys):
+def fire_mega_drone(drones, boss, center, valid_keys, blocked_key=None):
     direction = center - boss.pos
     if direction.length_squared() == 0:
         direction = pygame.Vector2(0, 1)
@@ -770,7 +829,7 @@ def fire_mega_drone(drones, boss, center, valid_keys):
     drones.append(
         Drone(
             pos=boss.pos + direction * (boss.radius + BOSS_SHOT_IMAGE_RADIUS + 4),
-            letter=random.choice(valid_keys),
+            letter=random_spawn_key(valid_keys, blocked_key),
             hp=1,
             max_hp=1,
             radius=BOSS_SHOT_IMAGE_RADIUS,
@@ -799,7 +858,7 @@ def fire_final_boss_drones(drones, final_boss, center, valid_keys, count=1):
                     + shot_direction * (final_boss.radius + BOSS_SHOT_IMAGE_RADIUS + 6)
                     + side_offset
                 ),
-                letter=random.choice(valid_keys),
+                letter=random_spawn_key(valid_keys, final_boss.letter),
                 hp=1,
                 max_hp=1,
                 radius=BOSS_SHOT_IMAGE_RADIUS,
@@ -849,26 +908,28 @@ def explode(particles, pos, count=18):
         )
 
 
-def add_shot_trail(shot_trails, bullet, now):
-    if now < bullet.next_trail_time or bullet.vel.length_squared() == 0:
+def add_shot_trail(shot_trails, shot, now):
+    if now < shot.next_trail_time or shot.vel.length_squared() == 0:
         return
 
-    direction = bullet.vel.normalize()
-    origin = bullet.pos - direction * 7
+    shot_radius = getattr(shot, "radius", 7)
+    trail_scale = max(1.0, shot_radius / 7)
+    direction = shot.vel.normalize()
+    origin = shot.pos - direction * shot_radius
     side = pygame.Vector2(-direction.y, direction.x)
-    for _ in range(2):
-        drift = -direction * random.uniform(10, 24) + side * random.uniform(-12, 12)
-        ttl = random.uniform(0.18, 0.32)
+    for _ in range(max(4, int(4 * trail_scale))):
+        drift = -direction * random.uniform(14, 32) * trail_scale + side * random.uniform(-15, 15) * trail_scale
+        ttl = random.uniform(0.28, 0.48)
         shot_trails.append(
             ShotTrailParticle(
-                pos=origin + side * random.uniform(-3, 3),
+                pos=origin + side * random.uniform(-5, 5) * trail_scale,
                 vel=drift,
                 ttl=ttl,
                 max_ttl=ttl,
-                radius=random.uniform(1.0, 2.0),
+                radius=random.uniform(2.0, 4.0) * trail_scale,
             )
         )
-    bullet.next_trail_time = now + SHOT_TRAIL_INTERVAL_MS
+    shot.next_trail_time = now + max(6, int(SHOT_TRAIL_INTERVAL_MS / min(2.0, trail_scale)))
 
 
 def draw_shot_trails(screen, shot_trails):
@@ -877,7 +938,7 @@ def draw_shot_trails(screen, shot_trails):
         radius = max(1, int(particle.radius * alpha_scale))
         size = radius * 2 + 2
         surface = pygame.Surface((size, size), pygame.SRCALPHA)
-        alpha = int(58 * alpha_scale)
+        alpha = int(135 * alpha_scale)
         pygame.draw.circle(surface, (*SHOT_TRAIL_COLOR, alpha), (size // 2, size // 2), radius)
         screen.blit(surface, surface.get_rect(center=particle.pos))
 
@@ -1038,31 +1099,28 @@ def draw_mega_bar(screen, font, mega_text, charge_blocks=0, active=False):
             pygame.draw.rect(screen, fill_color, block_rect.inflate(-4, -4))
         pygame.draw.rect(screen, frame_color, block_rect, 1)
 
-    text_color = MEGA_SHOT_COLOR if active else (92, 98, 110)
+    text_color = MEGA_SHOT_COLOR
     text_surface = font.render(mega_text, True, text_color)
-    if not active:
-        text_surface.set_alpha(150)
     screen.blit(text_surface, text_surface.get_rect(center=(width / 2, 28)))
     note_font = pygame.font.SysFont("arial", 15, bold=True)
     note_surface = note_font.render("Hold Space Bar When Firing", True, text_color)
-    if not active:
-        note_surface.set_alpha(150)
     screen.blit(note_surface, note_surface.get_rect(center=(width / 2, 76)))
 
 
-def draw_player_shield_bar(screen, font, charges, enabled, y_offset=0):
+def draw_player_shield_bar(screen, font, charges, enabled, y_offset=0, max_charges=PLAYER_SHIELD_MAX_CHARGES):
     if not enabled:
         return
     width, _ = screen.get_size()
     block_size = 22
     gap = 5
-    bar_width = PLAYER_SHIELD_MAX_CHARGES * block_size + (PLAYER_SHIELD_MAX_CHARGES - 1) * gap
+    max_charges = max(1, max_charges)
+    bar_width = max_charges * block_size + (max_charges - 1) * gap
     bar_rect = pygame.Rect(0, 0, bar_width, block_size)
     bar_rect.center = (width / 2, 91 + y_offset)
 
     frame_color = (70, 154, 190)
     empty_color = (22, 34, 48)
-    for index in range(PLAYER_SHIELD_MAX_CHARGES):
+    for index in range(max_charges):
         block_rect = pygame.Rect(
             bar_rect.x + index * (block_size + gap),
             bar_rect.y,
@@ -1158,17 +1216,26 @@ def draw_star_field(screen, stars):
         screen.blit(star_surface, (x, y))
 
 
-def draw_end_screen(screen, clock, won, destroyed, drone_target, score):
+def draw_end_screen(screen, clock, won, destroyed, drone_target, score, hits_taken, credits_earned):
     title_font = pygame.font.SysFont("arial", 56, bold=True)
     body_font = pygame.font.SysFont("arial", 26)
+    small_font = pygame.font.SysFont("arial", 20)
     title = "MISSION COMPLETE" if won else "MISSION FAILED"
-    message = f"Drones destroyed: {int(min(destroyed, drone_target))}/{drone_target}    Score: {score}"
+    destroyed_count = int(min(destroyed, drone_target))
+    rows = (
+        ("Points", str(score)),
+        ("Hits taken", str(hits_taken)),
+        ("Drones destroyed", f"{destroyed_count}/{drone_target}"),
+        ("Credits earned", str(credits_earned)),
+    )
     prompt = "Press ␣ to return to the menu"
 
     while True:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return "quit"
+            if event.type == pygame.VIDEORESIZE:
+                screen = enforce_min_window_size(screen)
             if event.type == pygame.KEYDOWN:
                 started_space_charge = False
                 if event.key == pygame.K_F11:
@@ -1180,11 +1247,21 @@ def draw_end_screen(screen, clock, won, destroyed, drone_target, score):
 
         screen.fill(BG_COLOR)
         width, height = screen.get_size()
+        modal_rect = pygame.Rect(0, 0, min(560, width - 80), 430)
+        modal_rect.center = (width / 2, height / 2)
+        pygame.draw.rect(screen, (10, 18, 34), modal_rect, border_radius=8)
+        pygame.draw.rect(screen, ACCENT if won else THREE_SHOT_DRONE_COLOR, modal_rect, 2, border_radius=8)
         title_surface = title_font.render(title, True, ACCENT if won else THREE_SHOT_DRONE_COLOR)
-        screen.blit(title_surface, title_surface.get_rect(center=(width / 2, height / 2 - 84)))
-        message_surface = body_font.render(message, True, TEXT_COLOR)
-        screen.blit(message_surface, message_surface.get_rect(center=(width / 2, height / 2 - 12)))
-        render_inline_center(screen, prompt, body_font, MUTED_TEXT, (width / 2, height / 2 + 61))
+        screen.blit(title_surface, title_surface.get_rect(center=(width / 2, modal_rect.y + 72)))
+        for index, (label, value) in enumerate(rows):
+            y = modal_rect.y + 142 + index * 48
+            label_surface = body_font.render(label, True, MUTED_TEXT)
+            value_surface = body_font.render(value, True, TEXT_COLOR)
+            screen.blit(label_surface, (modal_rect.x + 58, y))
+            screen.blit(value_surface, (modal_rect.right - value_surface.get_width() - 58, y))
+        if won and hits_taken == 0:
+            render_inline_center(screen, "Not Damaged Bonus: +25 credits", small_font, ACCENT, (width / 2, modal_rect.bottom - 88))
+        render_inline_center(screen, prompt, body_font, MUTED_TEXT, (width / 2, modal_rect.bottom - 45))
         pygame.display.flip()
         clock.tick(60)
 
@@ -1228,6 +1305,8 @@ def pause_menu(screen, clock):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return "quit"
+            if event.type == pygame.VIDEORESIZE:
+                screen = enforce_min_window_size(screen)
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_F11:
                     screen = toggle_fullscreen()
@@ -1274,7 +1353,10 @@ class MissionEngine:
         self.sfx_dir = Path(base_dir) / "sfx"
         self.gfx_dir = Path(base_dir) / "gfx"
         self.lesson_number = int(lesson_dir_name.split("_")[-1])
-        self.target_keys = mission_target_keys(valid_keys, self.lesson_number)
+        self.player_mega_shot_available = player_mega_shot_available(player, self.lesson_number)
+        self.player_shields_available = player_shield_available(player, self.lesson_number)
+        self.max_shield_charges = player_shield_max_charges(player)
+        self.target_keys = mission_target_keys(valid_keys, self.lesson_number, self.player_mega_shot_available)
         self.drone_target = lesson_drone_target(self.lesson_number)
         self.mini_boss_numbers = mini_boss_numbers_for_lesson(self.lesson_number, self.drone_target)
         play_audio(self.lesson_dir / f"lesson_{self.lesson_number}_instructions.wav")
@@ -1324,8 +1406,10 @@ class MissionEngine:
         self.destroyed = 0
         self.spawned_count = 0
         self.score = 0
+        self.hits_taken = 0
+        self.credits_awarded = False
         self.lives = max(STARTING_LIVES, self._player_int("lives", STARTING_LIVES, 1))
-        self.shield_charges = self._player_int("shield_charges", 0, 0, PLAYER_SHIELD_MAX_CHARGES)
+        self.shield_charges = self._player_int("shield_charges", 0, 0, self.max_shield_charges)
         self.active_shield_hits = 0
         self.active_shield_expires_at = 0
         self._save_player_resources()
@@ -1356,7 +1440,7 @@ class MissionEngine:
         if self.player is None:
             return
         self.player["lives"] = max(1, self.lives)
-        self.player["shield_charges"] = max(0, min(PLAYER_SHIELD_MAX_CHARGES, self.shield_charges))
+        self.player["shield_charges"] = max(0, min(self.max_shield_charges, self.shield_charges))
 
     def _add_lifetime_score(self):
         if self.player is None:
@@ -1365,6 +1449,23 @@ class MissionEngine:
         if not isinstance(lifetime_score, int):
             lifetime_score = 0
         self.player["lifetime_score"] = max(0, lifetime_score) + self.score
+
+    def _calculate_credits_earned(self, won):
+        credits = int(min(self.destroyed, self.drone_target))
+        if won:
+            credits += 50
+            if self.hits_taken == 0:
+                credits += 25
+        return credits
+
+    def _award_credits(self, credits_earned):
+        if self.player is None or self.credits_awarded:
+            return
+        current_credits = self.player.get("credits", 0)
+        if not isinstance(current_credits, int):
+            current_credits = 0
+        self.player["credits"] = max(0, current_credits) + credits_earned
+        self.credits_awarded = True
 
     def _shield_is_active(self, now):
         return self.active_shield_hits > 0 and now < self.active_shield_expires_at
@@ -1381,7 +1482,7 @@ class MissionEngine:
             return True
 
         self._clear_active_shield()
-        if not player_shield_enabled(self.lesson_number) or self.shield_charges <= 0:
+        if not self.player_shields_available or self.shield_charges <= 0:
             return False
 
         self.shield_charges -= 1
@@ -1397,9 +1498,20 @@ class MissionEngine:
 
     def _show_end_screen(self, won):
         self._save_player_resources()
+        credits_earned = self._calculate_credits_earned(won)
+        self._award_credits(credits_earned)
         if won:
             self._add_lifetime_score()
-        return draw_end_screen(self.screen, self.clock, won, self.destroyed, self.drone_target, self.score)
+        return draw_end_screen(
+            self.screen,
+            self.clock,
+            won,
+            self.destroyed,
+            self.drone_target,
+            self.score,
+            self.hits_taken,
+            credits_earned,
+        )
 
     def _boss_player_target_center(self):
         width, height = self.screen.get_size()
@@ -1420,6 +1532,43 @@ class MissionEngine:
             return False
         return self.player_center.distance_to(self._boss_player_target_center()) <= 2
 
+    def _shift_gameplay_timers(self, elapsed_ms):
+        if elapsed_ms <= 0:
+            return
+        self.next_mega_recharge_time = self._shift_timer(self.next_mega_recharge_time, elapsed_ms)
+        self.next_spawn_rate_change_time = self._shift_timer(self.next_spawn_rate_change_time, elapsed_ms)
+        self.next_spawn_time = self._shift_timer(self.next_spawn_time, elapsed_ms)
+        self.next_power_up_spawn_time = self._shift_timer(self.next_power_up_spawn_time, elapsed_ms)
+        self.active_shield_expires_at = self._shift_timer(self.active_shield_expires_at, elapsed_ms)
+        if self.power_up is not None:
+            self.power_up.expires_at += elapsed_ms
+        if self.final_boss is not None:
+            self.final_boss.next_shot_time = self._shift_timer(self.final_boss.next_shot_time, elapsed_ms)
+            self.final_boss.next_orbit_switch_time = self._shift_timer(
+                self.final_boss.next_orbit_switch_time,
+                elapsed_ms,
+            )
+            self.final_boss.next_semi_boss_spawn_time = self._shift_timer(
+                self.final_boss.next_semi_boss_spawn_time,
+                elapsed_ms,
+            )
+            if self.final_boss.shield_down_since is not None:
+                self.final_boss.shield_down_since += elapsed_ms
+            if self.final_boss.next_shield_recharge_time is not None:
+                self.final_boss.next_shield_recharge_time += elapsed_ms
+        for drone in self.drones:
+            drone.next_shot_time = self._shift_timer(drone.next_shot_time, elapsed_ms)
+        for bullet in self.bullets:
+            bullet.next_trail_time = self._shift_timer(bullet.next_trail_time, elapsed_ms)
+        for mega_shot in self.mega_shots:
+            mega_shot.next_trail_time = self._shift_timer(mega_shot.next_trail_time, elapsed_ms)
+        for pending_shot in self.pending_shots:
+            pending_shot.created_at += elapsed_ms
+
+    @staticmethod
+    def _shift_timer(value, elapsed_ms):
+        return value + elapsed_ms if value else value
+
     def _begin_frame(self):
         dt = self.clock.tick(60) / 1000
         now = pygame.time.get_ticks()
@@ -1429,7 +1578,7 @@ class MissionEngine:
             self.current_spawn_interval_ms = random_spawn_interval(self.lesson_number)
             self.next_spawn_rate_change_time = now + SPAWN_RATE_CHANGE_MS
         update_star_field(self.stars, dt)
-        if mega_shot_enabled(self.lesson_number) and self.mega_charge_blocks < MEGA_CHARGE_MAX_BLOCKS:
+        if self.player_mega_shot_available and self.mega_charge_blocks < MEGA_CHARGE_MAX_BLOCKS:
             if self.next_mega_recharge_time and now >= self.next_mega_recharge_time:
                 self.mega_charge_blocks += 1
                 self.next_mega_recharge_time = (
@@ -1489,6 +1638,7 @@ class MissionEngine:
                 now,
                 player_shield_enabled(self.lesson_number),
                 self.shield_charges,
+                self.max_shield_charges,
                 self.life_power_ups_spawned < MAX_LIFE_POWER_UPS_PER_MISSION,
             )
             if self.power_up is None:
@@ -1559,17 +1709,18 @@ class MissionEngine:
         )
         mega_text = ""
         mega_active = False
-        if mega_shot_enabled(self.lesson_number):
+        if self.player_mega_shot_available:
             mega_text = "Mega shot"
             mega_active = self.mega_charge_blocks > 0
         draw_mega_bar(self.screen, self.font, mega_text, self.mega_charge_blocks, mega_active)
-        shield_offset = 32 if mega_shot_enabled(self.lesson_number) else 0
+        shield_offset = 32 if self.player_mega_shot_available else 0
         draw_player_shield_bar(
             self.screen,
             self.font,
             self.shield_charges,
-            player_shield_enabled(self.lesson_number),
+            self.player_shields_available,
             shield_offset,
+            self.max_shield_charges,
         )
         draw_hud(self.screen, self.font, min(self.destroyed, self.drone_target), self.drone_target, self.score, self.lives)
 
@@ -1633,12 +1784,14 @@ class MissionEngine:
             update_drone_position(drone, center, dt)
             drone.rotation = (drone.rotation + drone_rotation_radians_per_second(drone) * dt) % math.tau
             if drone.is_mega and now >= drone.next_shot_time:
-                fire_mega_drone(self.drones, drone, center, self.target_keys)
+                blocked_key = self.final_boss.letter if self.final_boss is not None else None
+                fire_mega_drone(self.drones, drone, center, self.target_keys, blocked_key)
                 drone.next_shot_time = now + MEGA_ATTACK_INTERVAL_MS
             if drone.pos.distance_to(center) <= drone.radius + PLAYER_COLLISION_RADIUS:
                 self.drones.remove(drone)
                 explode(self.particles, drone.pos, 12)
                 play_sound(self.explosion_sound)
+                self.hits_taken += 1
                 if self._absorb_player_hit_with_shield(now):
                     continue
                 self.lives -= 1
@@ -1676,6 +1829,8 @@ class MissionEngine:
                     stop_looping_sound(self.bg_music_channel)
                     stop_audio()
                     return self._finish("quit")
+                if event.type == pygame.VIDEORESIZE:
+                    self.screen = enforce_min_window_size(self.screen)
                 if event.type == pygame.KEYDOWN:
                     started_space_charge = False
                     if event.key == pygame.K_F11:
@@ -1686,8 +1841,10 @@ class MissionEngine:
                             self.bg_music_channel.pause()
                         if pygame.mixer.get_init():
                             pygame.mixer.music.pause()
+                        pause_started_at = pygame.time.get_ticks()
                         pause_result = pause_menu(self.screen, self.clock)
                         if pause_result == "resume":
+                            self._shift_gameplay_timers(pygame.time.get_ticks() - pause_started_at)
                             pygame.mouse.set_visible(False)
                             if self.bg_music_channel is not None:
                                 self.bg_music_channel.unpause()
@@ -1703,13 +1860,13 @@ class MissionEngine:
                             return self._finish("restart")
                         return self._finish("menu")
                     pressed_key = event_to_lesson_key(event)
-                    if mega_shot_enabled(self.lesson_number) and event.key == pygame.K_SPACE:
+                    if self.player_mega_shot_available and event.key == pygame.K_SPACE:
                         self.space_held = True
                         started_space_charge = True
                     collected_power_up, consumed_by_power_up = handle_power_up_key(self.power_up, pressed_key)
                     if collected_power_up:
                         if collected_power_up == "shield":
-                            self.shield_charges = min(PLAYER_SHIELD_MAX_CHARGES, self.shield_charges + 1)
+                            self.shield_charges = min(self.max_shield_charges, self.shield_charges + 1)
                         else:
                             self.lives += 1
                         self._save_player_resources()
@@ -1720,14 +1877,15 @@ class MissionEngine:
                         continue
                     if pressed_key in self.target_keys:
                         if (
-                            mega_shot_enabled(self.lesson_number)
+                            self.player_mega_shot_available
                             and self.space_held
                             and not started_space_charge
                             and self.mega_charge_blocks > 0
                         ):
+                            final_boss_target = self.final_boss if self._boss_perspective_ready() else None
                             queued_mega = queue_mega_shot(
                                 self.drones,
-                                self.final_boss,
+                                final_boss_target,
                                 self.pending_shots,
                                 pressed_key,
                                 self.player_center,
@@ -1813,6 +1971,7 @@ class MissionEngine:
                     mega_shot.target = None
 
                 if mega_shot.target is None:
+                    add_shot_trail(self.shot_trails, mega_shot, now)
                     mega_shot.pos += mega_shot.vel * dt
                     if bullet_is_offscreen(mega_shot, self.screen):
                         self.mega_shots.remove(mega_shot)
@@ -1863,6 +2022,7 @@ class MissionEngine:
 
                 if target_vector.length_squared() > 0:
                     mega_shot.vel = target_vector.normalize() * 820
+                add_shot_trail(self.shot_trails, mega_shot, now)
                 mega_shot.pos += mega_shot.vel * dt
 
             self._update_particles(dt)
