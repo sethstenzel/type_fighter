@@ -572,6 +572,12 @@ def next_power_up_time(now):
     return now + random.randint(POWER_UP_MIN_INTERVAL_MS, POWER_UP_MAX_INTERVAL_MS)
 
 
+def point_in_blocked_power_up_area(pos, blocked_center, blocked_radius, blocked_rects):
+    if blocked_center is not None and pos.distance_to(blocked_center) < blocked_radius:
+        return True
+    return any(rect.collidepoint(pos.x, pos.y) for rect in blocked_rects)
+
+
 def spawn_power_up(
     screen,
     valid_keys,
@@ -582,6 +588,7 @@ def spawn_power_up(
     life_enabled=True,
     blocked_center=None,
     blocked_radius=POWER_UP_POD_EXCLUSION_RADIUS,
+    blocked_rects=(),
 ):
     width, height = screen.get_size()
     margin = 90
@@ -598,14 +605,13 @@ def spawn_power_up(
         random.randint(margin, max(margin, width - margin)),
         random.randint(margin, max(margin, height - margin)),
     )
-    if blocked_center is not None:
-        for _ in range(24):
-            if pos.distance_to(blocked_center) >= blocked_radius:
-                break
-            pos = pygame.Vector2(
-                random.randint(margin, max(margin, width - margin)),
-                random.randint(margin, max(margin, height - margin)),
-            )
+    for _ in range(40):
+        if not point_in_blocked_power_up_area(pos, blocked_center, blocked_radius, blocked_rects):
+            break
+        pos = pygame.Vector2(
+            random.randint(margin, max(margin, width - margin)),
+            random.randint(margin, max(margin, height - margin)),
+        )
     return PowerUp(
         pos=pos,
         letters=(keys[0], keys[1]),
@@ -1694,6 +1700,20 @@ class MissionEngine:
         self.final_boss = spawn_final_boss(self.screen, now, self.target_keys, self._boss_player_target_center())
         play_sound(self.boss_sound)
 
+    def _power_up_blocked_rects(self):
+        width, height = self.screen.get_size()
+        rects = [
+            pygame.Rect(0, 0, 340, 58),
+            pygame.Rect(max(0, width - 340), 0, 340, 88),
+            pygame.Rect(0, max(0, height - 68), width, 68),
+        ]
+        if self.player_mega_shot_available:
+            rects.append(pygame.Rect(width / 2 - 150, 8, 300, 82))
+        if self.player_shields_available:
+            shield_y = 70 + (32 if self.player_mega_shot_available else 0)
+            rects.append(pygame.Rect(width / 2 - 170, shield_y - 16, 340, 60))
+        return rects
+
     def _spawn_entities(self, now):
         has_no_standard_play_drones = (
             self.final_boss is None
@@ -1736,6 +1756,7 @@ class MissionEngine:
                 self.max_shield_charges,
                 self.life_power_ups_spawned < MAX_LIFE_POWER_UPS_PER_MISSION,
                 self.player_center,
+                blocked_rects=self._power_up_blocked_rects(),
             )
             if self.power_up is None:
                 self.next_power_up_spawn_time = next_power_up_time(now)

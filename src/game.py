@@ -2,12 +2,13 @@ import importlib
 import json
 import math
 from pathlib import Path
+import random
 import re
 
 import pygame
 
 from lessons.lesson_config import LESSON_PROGRESS
-from lessons.key_render import render_inline_text
+from lessons.key_render import render_inline_text, render_key_label
 from lessons.mission_engine import create_star_field, draw_star_field, update_star_field
 
 
@@ -160,6 +161,185 @@ def draw_scrollbar(surface, track_rect, total_items, visible_items, first_visibl
     thumb_y = track_rect.y + int(travel * first_visible / max_first_visible)
     thumb_rect = pygame.Rect(track_rect.x + 2, thumb_y, track_rect.width - 4, thumb_height)
     pygame.draw.rect(surface, ACCENT, thumb_rect, border_radius=4)
+
+
+def load_battle_image(path, size):
+    try:
+        image = pygame.image.load(str(path)).convert_alpha()
+        return pygame.transform.smoothscale(image, size)
+    except (OSError, pygame.error):
+        return None
+
+
+def create_mock_battle():
+    return {
+        "drones": [],
+        "shots": [],
+        "explosions": [],
+        "next_spawn_time": 0,
+        "next_shot_time": 0,
+        "pod_rotation": 0,
+        "defense_angle": 0,
+        "pod_image": None,
+        "turret_image": None,
+        "defense_drone_image": None,
+        "shot_image": None,
+        "drone_images": [],
+        "loaded": False,
+    }
+
+
+def load_mock_battle_assets(battle):
+    if battle["loaded"]:
+        return
+    gfx_dir = BASE_DIR / "gfx"
+    battle["pod_image"] = load_battle_image(gfx_dir / "pod.png", (130, 130))
+    battle["turret_image"] = load_battle_image(gfx_dir / "turret.png", (72, 72))
+    battle["defense_drone_image"] = load_battle_image(gfx_dir / "defense_drone_image.png", (28, 28))
+    battle["shot_image"] = load_battle_image(gfx_dir / "shot.png", (18, 18))
+    battle["drone_images"] = [
+        image
+        for image in (
+            load_battle_image(gfx_dir / "yellow_drone.png", (44, 44)),
+            load_battle_image(gfx_dir / "orange_drone.png", (50, 50)),
+            load_battle_image(gfx_dir / "red_drone.png", (54, 54)),
+        )
+        if image is not None
+    ]
+    battle["loaded"] = True
+
+
+def mock_battle_pod_center(width, height, menu_right):
+    return pygame.Vector2((menu_right + width) / 2, height / 2)
+
+
+def mock_battle_spawn_drone(battle, width, height, menu_left):
+    y = random.randint(120, max(121, height - 120))
+    image = random.choice(battle["drone_images"]) if battle["drone_images"] else None
+    battle["drones"].append(
+        {
+            "pos": pygame.Vector2(random.randint(-160, -60), y),
+            "speed": random.uniform(34, 54),
+            "radius": 24,
+            "image": image,
+            "letter": random.choice("asdfjkl;eiworu"),
+            "rotation": random.uniform(0, math.tau),
+        }
+    )
+
+
+def draw_mock_battle_ship(screen, center, turret_angle, battle):
+    if battle["pod_image"] is not None:
+        rotated_pod = pygame.transform.rotozoom(battle["pod_image"], -math.degrees(battle["pod_rotation"]), 1.0)
+        screen.blit(rotated_pod, rotated_pod.get_rect(center=center))
+    else:
+        points = [(center.x + 34, center.y), (center.x - 24, center.y - 30), (center.x - 24, center.y + 30)]
+        pygame.draw.polygon(screen, (82, 137, 214), points)
+        pygame.draw.polygon(screen, (210, 230, 255), points, 2)
+
+    if battle["turret_image"] is not None:
+        rotated_turret = pygame.transform.rotozoom(battle["turret_image"], -math.degrees(turret_angle) - 90, 1.0)
+        screen.blit(rotated_turret, rotated_turret.get_rect(center=center))
+    else:
+        barrel_end = center + pygame.Vector2(math.cos(turret_angle), math.sin(turret_angle)) * 44
+        pygame.draw.line(screen, ACCENT, center, barrel_end, 8)
+        pygame.draw.circle(screen, (225, 243, 255), center, 12)
+
+    defense_pos = center + pygame.Vector2(math.cos(battle["defense_angle"]), math.sin(battle["defense_angle"])) * 92
+    defense_rotation = -battle["defense_angle"] * 4 + math.pi / 2
+    if battle["defense_drone_image"] is not None:
+        image = pygame.transform.rotozoom(battle["defense_drone_image"], math.degrees(defense_rotation), 1.0)
+        screen.blit(image, image.get_rect(center=defense_pos))
+    else:
+        points = [
+            (
+                defense_pos.x + math.cos(defense_rotation + index * math.tau / 3) * 14,
+                defense_pos.y + math.sin(defense_rotation + index * math.tau / 3) * 14,
+            )
+            for index in range(3)
+        ]
+        pygame.draw.polygon(screen, (145, 150, 156), points)
+        pygame.draw.polygon(screen, (224, 228, 232), points, 2)
+
+
+def update_and_draw_mock_battle(screen, battle, clock, menu_left, menu_right):
+    load_mock_battle_assets(battle)
+    width, height = screen.get_size()
+    now = pygame.time.get_ticks()
+    dt = min(0.05, clock.get_time() / 1000)
+    pod_center = mock_battle_pod_center(width, height, menu_right)
+    battle["pod_rotation"] = (battle["pod_rotation"] + math.tau * dt / 15) % math.tau
+    battle["defense_angle"] = (battle["defense_angle"] + math.tau * dt / 10) % math.tau
+
+    if now >= battle["next_spawn_time"] and len(battle["drones"]) < 4:
+        mock_battle_spawn_drone(battle, width, height, menu_left)
+        battle["next_spawn_time"] = now + random.randint(1100, 1900)
+
+    for drone in battle["drones"][:]:
+        travel = pod_center - drone["pos"]
+        if travel.length_squared() > 0:
+            drone["pos"] += travel.normalize() * drone["speed"] * dt
+        drone["rotation"] = (drone["rotation"] + math.tau * dt / 5) % math.tau
+        if drone["pos"].distance_to(pod_center) < 44:
+            battle["drones"].remove(drone)
+            battle["explosions"].append({"pos": drone["pos"].copy(), "ttl": 0.42, "max_ttl": 0.42})
+
+    if battle["drones"] and now >= battle["next_shot_time"]:
+        target = min(battle["drones"], key=lambda drone: drone["pos"].distance_squared_to(pod_center))
+        direction = target["pos"] - pod_center
+        if direction.length_squared() > 0:
+            direction = direction.normalize()
+            battle["shots"].append({"pos": pod_center + direction * 52, "vel": direction * 430, "target": target})
+            battle["next_shot_time"] = now + random.randint(1800, 2600)
+
+    for shot in battle["shots"][:]:
+        target = shot["target"]
+        if target not in battle["drones"]:
+            battle["shots"].remove(shot)
+            continue
+        direction = target["pos"] - shot["pos"]
+        if direction.length_squared() <= (target["radius"] + 7) ** 2:
+            battle["drones"].remove(target)
+            battle["shots"].remove(shot)
+            battle["explosions"].append({"pos": target["pos"].copy(), "ttl": 0.32, "max_ttl": 0.32})
+            continue
+        if direction.length_squared() > 0:
+            shot["vel"] = direction.normalize() * 430
+        shot["pos"] += shot["vel"] * dt
+
+    target = min(battle["drones"], key=lambda drone: drone["pos"].distance_squared_to(pod_center), default=None)
+    turret_angle = 0 if target is None else math.atan2((target["pos"] - pod_center).y, (target["pos"] - pod_center).x)
+
+    for explosion in battle["explosions"][:]:
+        explosion["ttl"] -= dt
+        if explosion["ttl"] <= 0:
+            battle["explosions"].remove(explosion)
+            continue
+        alpha_scale = max(0, explosion["ttl"] / explosion["max_ttl"])
+        radius = int(30 * (1 - alpha_scale) + 8)
+        surface = pygame.Surface((radius * 2 + 4, radius * 2 + 4), pygame.SRCALPHA)
+        pygame.draw.circle(surface, (255, 218, 125, int(150 * alpha_scale)), (radius + 2, radius + 2), radius, 3)
+        screen.blit(surface, surface.get_rect(center=explosion["pos"]))
+
+    for shot in battle["shots"]:
+        if battle["shot_image"] is not None:
+            angle = math.degrees(math.atan2(-shot["vel"].y, shot["vel"].x))
+            image = pygame.transform.rotozoom(battle["shot_image"], angle, 1.0)
+            screen.blit(image, image.get_rect(center=shot["pos"]))
+        else:
+            pygame.draw.circle(screen, (112, 241, 255), shot["pos"], 5)
+
+    for drone in battle["drones"]:
+        if drone["image"] is not None:
+            image = pygame.transform.rotozoom(drone["image"], -math.degrees(drone["rotation"]), 1.0)
+            screen.blit(image, image.get_rect(center=drone["pos"]))
+        else:
+            pygame.draw.circle(screen, ONE_SHOT_DRONE_COLOR, drone["pos"], drone["radius"])
+            pygame.draw.circle(screen, (255, 231, 214), drone["pos"], drone["radius"], 2)
+        label_font = pygame.font.SysFont("arial", 20, bold=True)
+        render_key_label(screen, drone["letter"], label_font, (8, 10, 18), drone["pos"], drone["radius"] * 1.45)
+
+    draw_mock_battle_ship(screen, pod_center, turret_angle, battle)
 
 
 def normalize_pod_upgrades(upgrades):
@@ -555,6 +735,7 @@ def player_select_loop(screen, clock):
     delete_confirm = False
     stars = create_star_field()
     player_rects = []
+    mock_battle = create_mock_battle()
 
     while True:
         update_star_field(stars, clock.get_time() / 1000)
@@ -617,6 +798,7 @@ def player_select_loop(screen, clock):
         text_left = content_left + 20
         screen.fill(BG_COLOR)
         draw_star_field(screen, stars)
+        update_and_draw_mock_battle(screen, mock_battle, clock, content_left, content_left + content_width)
 
         draw_text(screen, "SELECT PILOT", title_font, TEXT_COLOR, (text_left, 86))
         draw_text(
@@ -1055,6 +1237,7 @@ def menu_loop(screen, clock, players, player):
     mission_rects = []
     upgrades_button_rect = None
     upgrades_image = load_ui_image(BASE_DIR / "gfx" / "upgrades.png")
+    mock_battle = create_mock_battle()
 
     while True:
         update_star_field(stars, clock.get_time() / 1000)
@@ -1120,6 +1303,7 @@ def menu_loop(screen, clock, players, player):
         text_left = content_left + 20
         screen.fill(BG_COLOR)
         draw_star_field(screen, stars)
+        update_and_draw_mock_battle(screen, mock_battle, clock, content_left, content_left + content_width)
         upgrades_button_rect = pygame.Rect(content_left + content_width - 80, 128, 80, 80)
         draw_square_image_button(screen, upgrades_button_rect, upgrades_image)
         draw_text(screen, "TYPE FIGHTER", title_font, TEXT_COLOR, (text_left, 90))
@@ -1189,6 +1373,10 @@ def main():
     if hasattr(pygame.display, "set_minimum_size"):
         pygame.display.set_minimum_size(*MIN_SCREEN_SIZE)
     pygame.display.set_caption("Type Fighter")
+    try:
+        pygame.display.set_icon(pygame.image.load(str(BASE_DIR / "gfx" / "type-fighter-icon.ico")).convert_alpha())
+    except (OSError, pygame.error):
+        pass
     clock = pygame.time.Clock()
 
     try:
