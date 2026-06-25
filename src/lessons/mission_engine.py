@@ -36,6 +36,15 @@ TURRET_FIRE_DELAY_MS = 90
 SHOT_IMAGE_SIZE = 22
 SHOT_TRAIL_INTERVAL_MS = 12
 SHOT_ROTATIONS_PER_SECOND = 2
+DEFENSE_DRONE_COLOR = (145, 150, 156)
+DEFENSE_DRONE_RADIUS = 14
+DEFENSE_DRONE_ORBIT_RADIUS = POD_IMAGE_SIZE // 2 + 42
+DEFENSE_DRONE_ORBIT_SECONDS = 10
+DEFENSE_DRONE_FIRE_INTERVAL_MS = 6000
+DEFENSE_DRONE_SHOT_SPEED = 560
+DEFENSE_DRONE_SHOT_RADIUS = 4
+DEFENSE_DRONE_COLLISION_RADIUS = 16
+DEFENSE_DRONE_LINE_OF_SIGHT_BLOCK_RADIUS = POD_IMAGE_SIZE // 2
 
 START_SPAWN_INTERVAL_MS = 6000
 MIN_SPAWN_INTERVAL_MS = 2000
@@ -64,7 +73,7 @@ FINAL_BOSS_SHIELD_MAX = 3
 FINAL_BOSS_SHIELD_DOWN_MS = 15000
 FINAL_BOSS_SHIELD_RECHARGE_MS = 5000
 FINAL_BOSS_ATTACK_INTERVAL_MS = 4000
-FINAL_BOSS_SEMI_BOSS_FIRST_SPAWN_MS = 15000
+FINAL_BOSS_SEMI_BOSS_FIRST_SPAWN_MS = 20000
 FINAL_BOSS_SEMI_BOSS_SPAWN_INTERVAL_MS = 20000
 FINAL_BOSS_APPROACH_SPEED = 90
 FINAL_BOSS_ORBIT_SECONDS = 10
@@ -92,9 +101,10 @@ MEGA_SHIELD_MIN_LEVEL = 3
 MEGA_FINAL_KILL_LEVEL = 5
 POWER_UP_DURATION_MS = 5000
 POWER_UP_WARNING_MS = 2000
-MAX_LIFE_POWER_UPS_PER_MISSION = 2
+MAX_LIFE_POWER_UPS_PER_MISSION = 4
 POWER_UP_MIN_INTERVAL_MS = 18000
 POWER_UP_MAX_INTERVAL_MS = 32000
+POWER_UP_POD_EXCLUSION_RADIUS = POD_IMAGE_SIZE // 2 + 70
 POWER_UP_COLOR = (88, 214, 141)
 SHIELD_POWER_UP_COLOR = (116, 211, 255)
 BG_MUSIC_VOLUME = 0.35
@@ -151,6 +161,21 @@ class MegaShot:
     target: object | None
     radius: int = 10
     rotation: float = 0
+    next_trail_time: int = 0
+
+
+@dataclass
+class DefenseDrone:
+    angle: float
+    next_fire_time: int = 0
+    active: bool = True
+
+
+@dataclass
+class DefenseShot:
+    pos: pygame.Vector2
+    vel: pygame.Vector2
+    target: Drone | None
     next_trail_time: int = 0
 
 
@@ -378,6 +403,16 @@ def player_shield_max_charges(player):
     return max_charges
 
 
+def player_defense_drone_count(player):
+    upgrades = player_upgrade_ids(player)
+    count = 0
+    if "defense_drone" in upgrades:
+        count += 1
+    if "second_defense_drone" in upgrades:
+        count += 1
+    return count
+
+
 def final_boss_projectile_count(lesson_number):
     return 3
 
@@ -537,7 +572,17 @@ def next_power_up_time(now):
     return now + random.randint(POWER_UP_MIN_INTERVAL_MS, POWER_UP_MAX_INTERVAL_MS)
 
 
-def spawn_power_up(screen, valid_keys, now, shield_enabled=False, shield_charges=0, max_shield_charges=PLAYER_SHIELD_MAX_CHARGES, life_enabled=True):
+def spawn_power_up(
+    screen,
+    valid_keys,
+    now,
+    shield_enabled=False,
+    shield_charges=0,
+    max_shield_charges=PLAYER_SHIELD_MAX_CHARGES,
+    life_enabled=True,
+    blocked_center=None,
+    blocked_radius=POWER_UP_POD_EXCLUSION_RADIUS,
+):
     width, height = screen.get_size()
     margin = 90
     power_up_keys = [key for key in valid_keys if len(key) == 1 and key.isalpha()] or list(valid_keys)
@@ -549,11 +594,20 @@ def spawn_power_up(screen, valid_keys, now, shield_enabled=False, shield_charges
         kind = "life"
     else:
         return None
+    pos = pygame.Vector2(
+        random.randint(margin, max(margin, width - margin)),
+        random.randint(margin, max(margin, height - margin)),
+    )
+    if blocked_center is not None:
+        for _ in range(24):
+            if pos.distance_to(blocked_center) >= blocked_radius:
+                break
+            pos = pygame.Vector2(
+                random.randint(margin, max(margin, width - margin)),
+                random.randint(margin, max(margin, height - margin)),
+            )
     return PowerUp(
-        pos=pygame.Vector2(
-            random.randint(margin, max(margin, width - margin)),
-            random.randint(margin, max(margin, height - margin)),
-        ),
+        pos=pos,
         letters=(keys[0], keys[1]),
         expires_at=now + POWER_UP_DURATION_MS,
         kind=kind,
@@ -908,14 +962,14 @@ def explode(particles, pos, count=18):
         )
 
 
-def add_shot_trail(shot_trails, shot, now):
+def add_shot_trail(shot_trails, shot, now, radius_scale=1.0):
     if now < shot.next_trail_time or shot.vel.length_squared() == 0:
         return
 
     shot_radius = getattr(shot, "radius", 7)
     trail_scale = max(1.0, shot_radius / 7)
     direction = shot.vel.normalize()
-    origin = shot.pos - direction * shot_radius
+    origin = shot.pos
     side = pygame.Vector2(-direction.y, direction.x)
     for _ in range(max(4, int(4 * trail_scale))):
         drift = -direction * random.uniform(14, 32) * trail_scale + side * random.uniform(-15, 15) * trail_scale
@@ -926,7 +980,7 @@ def add_shot_trail(shot_trails, shot, now):
                 vel=drift,
                 ttl=ttl,
                 max_ttl=ttl,
-                radius=random.uniform(2.0, 4.0) * trail_scale,
+                radius=random.uniform(2.0, 4.0) * trail_scale * radius_scale,
             )
         )
     shot.next_trail_time = now + max(6, int(SHOT_TRAIL_INTERVAL_MS / min(2.0, trail_scale)))
@@ -966,6 +1020,31 @@ def draw_mega_shot(screen, mega_shot, shot_image=None):
     else:
         pygame.draw.circle(screen, MEGA_SHOT_COLOR, mega_shot.pos, mega_shot.radius)
         pygame.draw.circle(screen, (255, 255, 255), mega_shot.pos, mega_shot.radius, 2)
+
+
+def defense_drone_position(player_center, defense_drone):
+    return player_center + pygame.Vector2(
+        math.cos(defense_drone.angle),
+        math.sin(defense_drone.angle),
+    ) * DEFENSE_DRONE_ORBIT_RADIUS
+
+
+def draw_defense_drone(screen, defense_drone, player_center, defense_drone_image=None):
+    if not defense_drone.active:
+        return
+    pos = defense_drone_position(player_center, defense_drone)
+    rotation = -defense_drone.angle * 4 + math.pi / 2
+    if defense_drone_image is not None:
+        rotated_image = pygame.transform.rotozoom(defense_drone_image, math.degrees(rotation), 1.0)
+        screen.blit(rotated_image, rotated_image.get_rect(center=pos))
+        return
+    points = polygon_points(pos, DEFENSE_DRONE_RADIUS, 3, rotation)
+    pygame.draw.polygon(screen, DEFENSE_DRONE_COLOR, points)
+    pygame.draw.polygon(screen, (224, 228, 232), points, 2)
+
+
+def draw_defense_shot(screen, shot):
+    pygame.draw.circle(screen, BULLET_COLOR, shot.pos, DEFENSE_DRONE_SHOT_RADIUS)
 
 
 def draw_ship(screen, turret_angle, pod_rotation, turret_image=None, pod_image=None, center=None):
@@ -1378,6 +1457,13 @@ class MissionEngine:
         self.shot_image = load_image(self.gfx_dir / "shot.png")
         if self.shot_image is not None:
             self.shot_image = pygame.transform.smoothscale(self.shot_image, (SHOT_IMAGE_SIZE, SHOT_IMAGE_SIZE))
+        self.defense_drone_image = load_image(self.gfx_dir / "defense_drone_image.png")
+        if self.defense_drone_image is not None:
+            defense_drone_size = DEFENSE_DRONE_RADIUS * 2
+            self.defense_drone_image = pygame.transform.smoothscale(
+                self.defense_drone_image,
+                (defense_drone_size, defense_drone_size),
+            )
         self.final_boss_image = load_image(self.gfx_dir / "final-boss.png")
         if self.final_boss_image is not None:
             self.final_boss_image = pygame.transform.smoothscale(
@@ -1396,6 +1482,15 @@ class MissionEngine:
         self.drones = []
         self.bullets = []
         self.mega_shots = []
+        defense_drone_count = player_defense_drone_count(player)
+        self.defense_drones = [
+            DefenseDrone(
+                angle=index * math.pi,
+                next_fire_time=pygame.time.get_ticks() + DEFENSE_DRONE_FIRE_INTERVAL_MS,
+            )
+            for index in range(defense_drone_count)
+        ]
+        self.defense_shots = []
         self.pending_shots = []
         self.shot_trails = []
         self.power_up = None
@@ -1640,6 +1735,7 @@ class MissionEngine:
                 self.shield_charges,
                 self.max_shield_charges,
                 self.life_power_ups_spawned < MAX_LIFE_POWER_UPS_PER_MISSION,
+                self.player_center,
             )
             if self.power_up is None:
                 self.next_power_up_spawn_time = next_power_up_time(now)
@@ -1675,6 +1771,9 @@ class MissionEngine:
         for mega_shot in self.mega_shots:
             draw_mega_shot(self.screen, mega_shot, self.shot_image)
 
+        for defense_shot in self.defense_shots:
+            draw_defense_shot(self.screen, defense_shot)
+
         draw_power_up(self.screen, self.power_up, now)
         draw_final_boss(self.screen, self.final_boss, self.final_boss_image)
 
@@ -1700,6 +1799,8 @@ class MissionEngine:
             render_key_label(self.screen, drone.letter, label_font, (8, 10, 18), drone.pos, drone.radius * 1.45)
 
         draw_ship(self.screen, self.turret_angle, self.pod_rotation, self.turret_image, self.pod_image, self.player_center)
+        for defense_drone in self.defense_drones:
+            draw_defense_drone(self.screen, defense_drone, self.player_center, self.defense_drone_image)
         draw_active_player_shield(
             self.screen,
             self.player_center,
@@ -1821,6 +1922,108 @@ class MissionEngine:
             particle.pos += particle.vel * dt
             particle.vel *= 0.92
 
+    def _count_defense_drone_kill(self, drone):
+        pos = drone.pos.copy()
+        if drone in self.drones:
+            self.drones.remove(drone)
+        if drone_counts_for_level(drone):
+            self.destroyed += drone.level_value
+        self.score += 100
+        explode(self.particles, pos)
+        play_sound(self.explosion_sound)
+
+    def _damage_drone_from_defense_shot(self, drone):
+        if drone not in self.drones:
+            return
+        drone.incoming_damage = max(0, drone.incoming_damage - 1)
+        drone.hp -= 1
+        if drone.hp > 0 and not drone.is_mega:
+            self.drones.remove(drone)
+            split_regular_drone(self.drones, drone)
+            play_sound(self.split_sound)
+        elif drone.hp <= 0:
+            self._count_defense_drone_kill(drone)
+
+    def _defense_drone_has_line_of_sight(self, defense_pos, target_pos):
+        segment = target_pos - defense_pos
+        length_squared = segment.length_squared()
+        if length_squared == 0:
+            return True
+        center_to_start = self.player_center - defense_pos
+        projection = max(0, min(1, center_to_start.dot(segment) / length_squared))
+        closest = defense_pos + segment * projection
+        return closest.distance_to(self.player_center) > DEFENSE_DRONE_LINE_OF_SIGHT_BLOCK_RADIUS
+
+    def _defense_drone_target(self, defense_pos):
+        candidates = [
+            drone
+            for drone in self.drones
+            if self._defense_drone_has_line_of_sight(defense_pos, drone.pos)
+        ]
+        return random.choice(candidates) if candidates else None
+
+    def _update_defense_drones(self, now, dt):
+        for defense_drone in self.defense_drones:
+            if not defense_drone.active:
+                continue
+            defense_drone.angle = (defense_drone.angle + math.tau * dt / DEFENSE_DRONE_ORBIT_SECONDS) % math.tau
+            defense_pos = defense_drone_position(self.player_center, defense_drone)
+
+            for drone in self.drones[:]:
+                if drone.pos.distance_to(defense_pos) <= drone.radius + DEFENSE_DRONE_COLLISION_RADIUS:
+                    defense_drone.active = False
+                    self._count_defense_drone_kill(drone)
+                    explode(self.particles, defense_pos, 10)
+                    break
+
+            if not defense_drone.active:
+                continue
+            if now >= defense_drone.next_fire_time:
+                target = self._defense_drone_target(defense_pos)
+                if target is not None:
+                    direction = target.pos - defense_pos
+                    if direction.length_squared() == 0:
+                        direction = pygame.Vector2(0, -1)
+                    else:
+                        direction = direction.normalize()
+                    target.incoming_damage += 1
+                    self.defense_shots.append(
+                        DefenseShot(
+                            pos=defense_pos + direction * (DEFENSE_DRONE_RADIUS + DEFENSE_DRONE_SHOT_RADIUS + 2),
+                            vel=direction * DEFENSE_DRONE_SHOT_SPEED,
+                            target=target,
+                        )
+                    )
+                    play_sound(self.laser_sound)
+                defense_drone.next_fire_time = now + DEFENSE_DRONE_FIRE_INTERVAL_MS
+
+    def _update_defense_shots(self, dt):
+        for shot in self.defense_shots[:]:
+            if shot.target not in self.drones:
+                if shot.target is not None:
+                    shot.target.incoming_damage = max(0, shot.target.incoming_damage - 1)
+                shot.target = None
+                add_shot_trail(self.shot_trails, shot, pygame.time.get_ticks())
+                shot.pos += shot.vel * dt
+                if bullet_is_offscreen(shot, self.screen):
+                    self.defense_shots.remove(shot)
+                continue
+
+            target_vector = shot.target.pos - shot.pos
+            if target_vector.length_squared() <= (shot.target.radius + DEFENSE_DRONE_SHOT_RADIUS) ** 2:
+                target = shot.target
+                self.defense_shots.remove(shot)
+                self._damage_drone_from_defense_shot(target)
+                continue
+
+            if target_vector.length_squared() > 0:
+                shot.vel = target_vector.normalize() * DEFENSE_DRONE_SHOT_SPEED
+            add_shot_trail(self.shot_trails, shot, pygame.time.get_ticks())
+            shot.pos += shot.vel * dt
+            if bullet_is_offscreen(shot, self.screen):
+                shot.target.incoming_damage = max(0, shot.target.incoming_damage - 1)
+                self.defense_shots.remove(shot)
+
     def run(self):
         while True:
             dt, now = self._begin_frame()
@@ -1917,9 +2120,11 @@ class MissionEngine:
                 return self._show_end_screen(True)
 
             self._update_final_boss(now, dt)
+            self._update_defense_drones(now, dt)
             result = self._update_drones(now, dt)
             if result is not None:
                 return result
+            self._update_defense_shots(dt)
 
             for bullet in self.bullets[:]:
                 bullet.rotation = (bullet.rotation + math.tau * SHOT_ROTATIONS_PER_SECOND * dt) % math.tau
@@ -1971,7 +2176,7 @@ class MissionEngine:
                     mega_shot.target = None
 
                 if mega_shot.target is None:
-                    add_shot_trail(self.shot_trails, mega_shot, now)
+                    add_shot_trail(self.shot_trails, mega_shot, now, 0.5625)
                     mega_shot.pos += mega_shot.vel * dt
                     if bullet_is_offscreen(mega_shot, self.screen):
                         self.mega_shots.remove(mega_shot)
@@ -2022,7 +2227,7 @@ class MissionEngine:
 
                 if target_vector.length_squared() > 0:
                     mega_shot.vel = target_vector.normalize() * 820
-                add_shot_trail(self.shot_trails, mega_shot, now)
+                add_shot_trail(self.shot_trails, mega_shot, now, 0.5625)
                 mega_shot.pos += mega_shot.vel * dt
 
             self._update_particles(dt)

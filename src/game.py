@@ -104,7 +104,7 @@ UPGRADE_CATALOG = (
     {
         "id": "drone_splash_color",
         "name": "Drone Splash Color",
-        "cost": 250,
+        "cost": 25,
         "repeatable": True,
         "requirement": "Private rank",
         "min_rank": "Private",
@@ -114,7 +114,7 @@ UPGRADE_CATALOG = (
     {
         "id": "ammo_charge_color",
         "name": "Shot Charge Color",
-        "cost": 500,
+        "cost": 50,
         "repeatable": True,
         "requirement": "Lieutenant rank",
         "min_rank": "Lieutenant",
@@ -606,6 +606,9 @@ def player_select_loop(screen, clock):
                 elif event.button == 5:
                     selected = (selected + 1) % len(players)
                     delete_confirm = False
+            if event.type == pygame.MOUSEWHEEL and players:
+                selected = (selected - event.y) % len(players)
+                delete_confirm = False
 
         screen = pygame.display.get_surface()
         width, height = screen.get_size()
@@ -1104,6 +1107,11 @@ def menu_loop(screen, clock, players, player):
                                 selected = min(index + 1, unlocked_lesson_count(player) - 1)
                             pygame.event.clear((pygame.KEYDOWN, pygame.KEYUP, pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP))
                         break
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button in (4, 5):
+                direction = -1 if event.button == 4 else 1
+                selected = (selected + direction) % len(LESSONS)
+            if event.type == pygame.MOUSEWHEEL:
+                selected = (selected - event.y) % len(LESSONS)
 
         screen = pygame.display.get_surface()
         width, height = screen.get_size()

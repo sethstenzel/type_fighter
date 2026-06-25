@@ -13,11 +13,11 @@
       9,
       10
     ],
-    "lives": 55,
+    "lives": 68,
     "shield_charges": 4,
-    "lifetime_score": 131700,
+    "lifetime_score": 153700,
     "achievements": [],
-    "credits": 925,
+    "credits": 1025,
     "pod": {
       "color": "blue",
       "type": "standard",
@@ -65,6 +65,15 @@
         {
           "id": "drone_splash_color",
           "color": "Gold"
+        },
+        {
+          "id": "shield_charge"
+        },
+        {
+          "id": "shield_charge_3"
+        },
+        {
+          "id": "extra_life"
         }
       ]
     }
