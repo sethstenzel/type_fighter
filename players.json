@@ -17,7 +17,7 @@
     "shield_charges": 4,
     "lifetime_score": 131700,
     "achievements": [],
-    "credits": 1175,
+    "credits": 925,
     "pod": {
       "color": "blue",
       "type": "standard",
@@ -61,6 +61,10 @@
         {
           "id": "ammo_charge_color",
           "color": "Indigo"
+        },
+        {
+          "id": "drone_splash_color",
+          "color": "Gold"
         }
       ]
     }
@@ -147,17 +151,22 @@
       7,
       8,
       9,
-      10
+      10,
+      11
     ],
-    "lives": 3,
-    "shield_charges": 0,
-    "lifetime_score": 0,
+    "lives": 4,
+    "shield_charges": 1,
+    "lifetime_score": 38200,
     "achievements": [],
-    "credits": 0,
+    "credits": 164,
     "pod": {
       "color": "blue",
       "type": "standard",
-      "upgrades": []
+      "upgrades": [
+        {
+          "id": "shield_charge"
+        }
+      ]
     }
   }
 ]
