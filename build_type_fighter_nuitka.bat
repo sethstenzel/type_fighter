@@ -37,9 +37,6 @@ if "%TYPE_FIGHTER_RELEASE_NAME%"=="" (
 set "NUITKA_WORK_DIR=%~dp0build\nuitka"
 set "NUITKA_DIST_DIR=%NUITKA_WORK_DIR%\game.dist"
 set "RELEASE_DIR=%~dp0releases\%TYPE_FIGHTER_RELEASE_NAME%"
-set "PLAYER_DATA_ARG="
-
-if exist "%~dp0players.json" set "PLAYER_DATA_ARG=--include-data-files=%~dp0players.json=players.json"
 
 echo Building %TYPE_FIGHTER_RELEASE_NAME% with Nuitka
 
@@ -57,7 +54,10 @@ if exist "%RELEASE_DIR%" rmdir /s /q "%RELEASE_DIR%"
   --include-data-dir="%~dp0src\gfx=gfx" ^
   --include-data-dir="%~dp0src\sfx=sfx" ^
   --include-data-dir="%~dp0src\lessons=lessons" ^
-  %PLAYER_DATA_ARG% ^
+  --noinclude-data-files="*.psd" ^
+  --noinclude-data-files="*.PSD" ^
+  --noinclude-data-files="**/*.psd" ^
+  --noinclude-data-files="**/*.PSD" ^
   "%~dp0src\game.py"
 
 if errorlevel 1 (
