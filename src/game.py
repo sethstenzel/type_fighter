@@ -224,6 +224,7 @@ def mock_battle_spawn_drone(battle, width, height, menu_left):
             "image": image,
             "letter": random.choice("asdfjkl;eiworu"),
             "rotation": random.uniform(0, math.tau),
+            "targeted": False,
         }
     )
 
@@ -271,9 +272,9 @@ def update_and_draw_mock_battle(screen, battle, clock, menu_left, menu_right):
     battle["pod_rotation"] = (battle["pod_rotation"] + math.tau * dt / 15) % math.tau
     battle["defense_angle"] = (battle["defense_angle"] + math.tau * dt / 10) % math.tau
 
-    if now >= battle["next_spawn_time"] and len(battle["drones"]) < 4:
+    if now >= battle["next_spawn_time"] and len(battle["drones"]) < 6:
         mock_battle_spawn_drone(battle, width, height, menu_left)
-        battle["next_spawn_time"] = now + random.randint(1100, 1900)
+        battle["next_spawn_time"] = now + random.randint(733, 1267)
 
     for drone in battle["drones"][:]:
         travel = pod_center - drone["pos"]
@@ -285,12 +286,17 @@ def update_and_draw_mock_battle(screen, battle, clock, menu_left, menu_right):
             battle["explosions"].append({"pos": drone["pos"].copy(), "ttl": 0.42, "max_ttl": 0.42})
 
     if battle["drones"] and now >= battle["next_shot_time"]:
-        target = min(battle["drones"], key=lambda drone: drone["pos"].distance_squared_to(pod_center))
-        direction = target["pos"] - pod_center
-        if direction.length_squared() > 0:
-            direction = direction.normalize()
-            battle["shots"].append({"pos": pod_center + direction * 52, "vel": direction * 430, "target": target})
-            battle["next_shot_time"] = now + random.randint(1800, 2600)
+        available_targets = [drone for drone in battle["drones"] if not drone.get("targeted")]
+        target = min(available_targets, key=lambda drone: drone["pos"].distance_squared_to(pod_center), default=None)
+        if target is None:
+            battle["next_shot_time"] = now + 250
+        else:
+            target["targeted"] = True
+            direction = target["pos"] - pod_center
+            if direction.length_squared() > 0:
+                direction = direction.normalize()
+                battle["shots"].append({"pos": pod_center + direction * 52, "vel": direction * 430, "target": target})
+                battle["next_shot_time"] = now + random.randint(3600, 5200)
 
     for shot in battle["shots"][:]:
         target = shot["target"]
@@ -307,7 +313,10 @@ def update_and_draw_mock_battle(screen, battle, clock, menu_left, menu_right):
             shot["vel"] = direction.normalize() * 430
         shot["pos"] += shot["vel"] * dt
 
-    target = min(battle["drones"], key=lambda drone: drone["pos"].distance_squared_to(pod_center), default=None)
+    turret_targets = [drone for drone in battle["drones"] if not drone.get("targeted")]
+    if not turret_targets:
+        turret_targets = battle["drones"]
+    target = min(turret_targets, key=lambda drone: drone["pos"].distance_squared_to(pod_center), default=None)
     turret_angle = 0 if target is None else math.atan2((target["pos"] - pod_center).y, (target["pos"] - pod_center).x)
 
     for explosion in battle["explosions"][:]:

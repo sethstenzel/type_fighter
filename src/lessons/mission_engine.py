@@ -708,6 +708,17 @@ def mega_damage(charge_level):
     return 2 ** (level - 1)
 
 
+def mega_shot_speed(charge_level):
+    level = max(1, min(MEGA_CHARGE_MAX_BLOCKS, charge_level))
+    speed_multipliers = {
+        2: 1.10,
+        3: 1.20,
+        4: 1.40,
+        5: 1.80,
+    }
+    return 820 * speed_multipliers.get(level, 1.0)
+
+
 def mega_target(drones, final_boss, key, center):
     if final_boss is not None and key == final_boss.letter:
         return final_boss
@@ -747,7 +758,7 @@ def fire_pending_shot(pending_shot, bullets, mega_shots, center):
         mega_shots.append(
             MegaShot(
                 pos=center + direction * 34,
-                vel=direction * 820,
+                vel=direction * mega_shot_speed(charge_level),
                 charge_level=charge_level,
                 target=target,
                 radius=8 + charge_level * 2,
@@ -1345,7 +1356,7 @@ def draw_end_screen(screen, clock, won, destroyed, drone_target, score, hits_tak
             screen.blit(label_surface, (modal_rect.x + 58, y))
             screen.blit(value_surface, (modal_rect.right - value_surface.get_width() - 58, y))
         if won and hits_taken == 0:
-            render_inline_center(screen, "Not Damaged Bonus: +25 credits", small_font, ACCENT, (width / 2, modal_rect.bottom - 88))
+            render_inline_center(screen, "No Damage Taken Bonus: +25 credits", small_font, ACCENT, (width / 2, modal_rect.bottom - 88))
         render_inline_center(screen, prompt, body_font, MUTED_TEXT, (width / 2, modal_rect.bottom - 45))
         pygame.display.flip()
         clock.tick(60)
@@ -2247,7 +2258,7 @@ class MissionEngine:
                         continue
 
                 if target_vector.length_squared() > 0:
-                    mega_shot.vel = target_vector.normalize() * 820
+                    mega_shot.vel = target_vector.normalize() * mega_shot_speed(mega_shot.charge_level)
                 add_shot_trail(self.shot_trails, mega_shot, now, 0.5625)
                 mega_shot.pos += mega_shot.vel * dt
 
