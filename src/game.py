@@ -70,7 +70,7 @@ UPGRADE_CATALOG = (
     {
         "id": "extra_shield_slot_1",
         "name": "Extra Shield Slot 1",
-        "cost": 2000,
+        "cost": 1000,
         "repeatable": False,
         "requirement": "Lieutenant rank",
         "min_rank": "Lieutenant",
@@ -79,7 +79,7 @@ UPGRADE_CATALOG = (
     {
         "id": "extra_shield_slot_2",
         "name": "Extra Shield Slot 2",
-        "cost": 4000,
+        "cost": 2000,
         "repeatable": False,
         "requirement": "Captain rank",
         "min_rank": "Captain",
@@ -89,7 +89,7 @@ UPGRADE_CATALOG = (
     {
         "id": "defense_drone",
         "name": "Defense Drone",
-        "cost": 5000,
+        "cost": 2500,
         "repeatable": False,
         "requirement": "Lieutenant rank",
         "min_rank": "Lieutenant",
@@ -98,7 +98,7 @@ UPGRADE_CATALOG = (
     {
         "id": "second_defense_drone",
         "name": "Second Defense Drone",
-        "cost": 10000,
+        "cost": 2500,
         "repeatable": False,
         "requirement": "Captain rank",
         "min_rank": "Captain",
@@ -142,6 +142,7 @@ BASE_DIR = app_base_dir()
 PLAYERS_PATH = BASE_DIR / "players.json" if running_as_frozen_app() else BASE_DIR.parent / "players.json"
 is_fullscreen = True
 ui_image_cache = {}
+ui_sound_cache = {}
 
 
 LESSONS = [
@@ -648,6 +649,21 @@ def add_pod_upgrade(player, upgrade, color_name=None):
     pod["upgrades"] = upgrades
 
 
+def remove_pod_upgrade_entries(player, upgrade_id, count):
+    pod = player.get("pod", {}) if isinstance(player, dict) else {}
+    if not isinstance(pod, dict):
+        return
+    upgrades = normalize_pod_upgrades(pod.get("upgrades", []))
+    remaining = []
+    removed = 0
+    for entry in reversed(upgrades):
+        if removed < count and entry.get("id") == upgrade_id:
+            removed += 1
+            continue
+        remaining.append(entry)
+    pod["upgrades"] = list(reversed(remaining))
+
+
 def apply_upgrade_purchase(player, upgrade, color_name=None):
     player["credits"] = max(0, player_credits(player) - upgrade["cost"])
     if upgrade["id"] == "extra_life":
@@ -663,6 +679,43 @@ def apply_upgrade_purchase(player, upgrade, color_name=None):
         add_pod_upgrade(player, upgrade, color_name)
         if upgrade["id"].startswith("extra_shield_slot"):
             player["shield_charges"] = min(player_shield_max_charges(player), player.get("shield_charges", 0))
+
+
+def max_sell_quantity(player, upgrade):
+    if upgrade["id"] == "extra_life":
+        lives = player.get("lives", STARTING_LIVES)
+        if not isinstance(lives, int):
+            lives = STARTING_LIVES
+        return max(0, lives - STARTING_LIVES)
+    if upgrade["id"] == "shield_charge":
+        charges = player.get("shield_charges", 0)
+        return max(0, charges) if isinstance(charges, int) else 0
+    return 0
+
+
+def upgrade_can_sell(player, upgrade):
+    return upgrade["id"] in ("extra_life", "shield_charge") and max_sell_quantity(player, upgrade) > 0
+
+
+def upgrade_sell_value(upgrade):
+    return max(0, upgrade["cost"] // 2)
+
+
+def apply_upgrade_sale(player, upgrade, quantity):
+    quantity = max(0, int(quantity))
+    if quantity <= 0:
+        return
+    if upgrade["id"] == "extra_life":
+        quantity = min(quantity, max_sell_quantity(player, upgrade))
+        player["lives"] = max(STARTING_LIVES, player.get("lives", STARTING_LIVES) - quantity)
+        remove_pod_upgrade_entries(player, upgrade["id"], quantity)
+    elif upgrade["id"] == "shield_charge":
+        quantity = min(quantity, max_sell_quantity(player, upgrade))
+        player["shield_charges"] = max(0, player.get("shield_charges", 0) - quantity)
+        remove_pod_upgrade_entries(player, upgrade["id"], quantity)
+    else:
+        return
+    player["credits"] = player_credits(player) + upgrade_sell_value(upgrade) * quantity
 
 
 def mark_lesson_complete(player, lesson_number):
@@ -919,6 +972,21 @@ def draw_buy_button(screen, rect, font, hovered=False):
     screen.blit(label, label.get_rect(center=rect.center))
 
 
+def draw_sell_button(screen, rect, font, hovered=False, enabled=True):
+    if enabled:
+        fill = (78, 42, 50) if hovered else (42, 26, 36)
+        border = (219, 92, 101) if hovered else (142, 82, 96)
+        color = TEXT_COLOR
+    else:
+        fill = (12, 17, 28)
+        border = (35, 42, 62)
+        color = MUTED_TEXT
+    pygame.draw.rect(screen, fill, rect, border_radius=8)
+    pygame.draw.rect(screen, border, rect, 2, border_radius=8)
+    label = font.render("SELL", True, color)
+    screen.blit(label, label.get_rect(center=rect.center))
+
+
 def wrap_plain_text(text, font, max_width):
     lines = []
     for paragraph in str(text).splitlines():
@@ -959,6 +1027,26 @@ def load_ui_image(path):
         image = None
     ui_image_cache[cache_key] = image
     return image
+
+
+def load_ui_sound(path, volume=1.0):
+    if not pygame.mixer.get_init():
+        return None
+    cache_key = str(path)
+    if cache_key in ui_sound_cache:
+        return ui_sound_cache[cache_key]
+    try:
+        sound = pygame.mixer.Sound(str(path))
+        sound.set_volume(volume)
+    except (OSError, pygame.error):
+        sound = None
+    ui_sound_cache[cache_key] = sound
+    return sound
+
+
+def play_ui_sound(sound):
+    if sound is not None:
+        sound.play()
 
 
 def load_json_dict(path):
@@ -1007,6 +1095,7 @@ def collect_lesson_unlock_modals(lesson_number):
         if title or text:
             queued.append(
                 {
+                    "kind": "unlock",
                     "title": title or "Unlocked",
                     "text": text,
                     "image_path": resolve_reward_image_path(lesson_dir, image_name),
@@ -1029,6 +1118,8 @@ def reward_modal_loop(screen, clock, reward, background):
     button_font = pygame.font.SysFont("arial", 24, bold=True)
     ok_rect = pygame.Rect(0, 0, 0, 0)
     image = load_ui_image(reward.get("image_path")) if reward.get("image_path") else None
+    if reward.get("kind") == "unlock":
+        play_ui_sound(load_ui_sound(BASE_DIR / "sfx" / "unlock.wav", 0.9))
     while True:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -1116,7 +1207,7 @@ def draw_upgrades_modal(screen, title_font, body_font, small_font, player):
         (modal_rect.x + header_pad + 4, modal_rect.y + header_pad + title_font.get_height() + 16),
     )
 
-    buy_rects = []
+    action_rects = []
     mouse_pos = pygame.mouse.get_pos()
     if modal_width >= 560:
         cols = 3
@@ -1187,9 +1278,20 @@ def draw_upgrades_modal(screen, title_font, body_font, small_font, player):
         if upgrade_shows_purchased(player, upgrade):
             purchased_surface = small_font.render("PURCHASED", True, ACCENT)
             screen.blit(purchased_surface, purchased_surface.get_rect(center=action_rect.center))
+        elif upgrade["id"] in ("extra_life", "shield_charge"):
+            button_gap = max(4, min(8, action_rect.width // 24))
+            button_width = max(1, (action_rect.width - button_gap) // 2)
+            sell_rect = pygame.Rect(action_rect.x, action_rect.y, button_width, action_rect.height)
+            buy_rect = pygame.Rect(action_rect.right - button_width, action_rect.y, button_width, action_rect.height)
+            sell_enabled = upgrade_can_sell(player, upgrade)
+            draw_sell_button(screen, sell_rect, small_font, sell_rect.collidepoint(mouse_pos), sell_enabled)
+            draw_buy_button(screen, buy_rect, small_font, buy_rect.collidepoint(mouse_pos))
+            if sell_enabled:
+                action_rects.append(("sell", index, sell_rect))
+            action_rects.append(("buy", index, buy_rect))
         else:
             draw_buy_button(screen, action_rect, small_font, action_rect.collidepoint(mouse_pos))
-            buy_rects.append((index, action_rect))
+            action_rects.append(("buy", index, action_rect))
         screen.set_clip(previous_clip)
 
     footer_rect = pygame.Rect(modal_rect.x + 2, footer_top, modal_rect.width - 4, footer_height - 2)
@@ -1197,8 +1299,8 @@ def draw_upgrades_modal(screen, title_font, body_font, small_font, player):
     pygame.draw.line(screen, (43, 57, 89), (footer_rect.x, footer_rect.y), (footer_rect.right, footer_rect.y), 1)
     close_rect = pygame.Rect(modal_rect.right - 150, footer_top + 20, 118, 38)
     draw_modal_button(screen, close_rect, "Close", small_font, True, False)
-    draw_text(screen, "Press BUY to purchase an upgrade. Esc closes.", small_font, MUTED_TEXT, (modal_rect.x + 32, footer_top + 30))
-    return buy_rects, close_rect
+    draw_text(screen, "Press BUY to purchase or SELL to refund. Esc closes.", small_font, MUTED_TEXT, (modal_rect.x + 32, footer_top + 30))
+    return action_rects, close_rect
 
 
 def confirm_purchase_modal(screen, clock, upgrade, player):
@@ -1309,6 +1411,80 @@ def upgrade_locked_modal(screen, clock, upgrade, reason):
         clock.tick(60)
 
 
+def sell_upgrade_modal(screen, clock, upgrade, player):
+    max_quantity = max_sell_quantity(player, upgrade)
+    if max_quantity <= 0:
+        return None
+    title_font = pygame.font.SysFont("arial", 38, bold=True)
+    body_font = pygame.font.SysFont("arial", 22)
+    large_font = pygame.font.SysFont("arial", 42, bold=True)
+    quantity = 1
+    up_rect = pygame.Rect(0, 0, 0, 0)
+    down_rect = pygame.Rect(0, 0, 0, 0)
+    sell_rect = pygame.Rect(0, 0, 0, 0)
+    cancel_rect = pygame.Rect(0, 0, 0, 0)
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return "quit"
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    return None
+                if event.key in (pygame.K_UP, pygame.K_w):
+                    quantity = min(max_quantity, quantity + 1)
+                if event.key in (pygame.K_DOWN, pygame.K_s):
+                    quantity = max(1, quantity - 1)
+                if event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                    return quantity
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if up_rect.collidepoint(event.pos):
+                    quantity = min(max_quantity, quantity + 1)
+                elif down_rect.collidepoint(event.pos):
+                    quantity = max(1, quantity - 1)
+                elif sell_rect.collidepoint(event.pos):
+                    return quantity
+                elif cancel_rect.collidepoint(event.pos):
+                    return None
+
+        screen = pygame.display.get_surface()
+        width, height = screen.get_size()
+        draw_modal_backdrop(screen)
+        rect = pygame.Rect(0, 0, min(560, width - 80), 360)
+        rect.center = (width / 2, height / 2)
+        pygame.draw.rect(screen, (10, 18, 34), rect, border_radius=8)
+        pygame.draw.rect(screen, (219, 92, 101), rect, 2, border_radius=8)
+        draw_text(screen, "SELL UPGRADE", title_font, TEXT_COLOR, (rect.x + 28, rect.y + 24))
+        draw_text(screen, upgrade["name"], body_font, MUTED_TEXT, (rect.x + 32, rect.y + 82))
+        draw_text(
+            screen,
+            f"Refund: {upgrade_sell_value(upgrade)} credits each    Available to sell: {max_quantity}",
+            body_font,
+            MUTED_TEXT,
+            (rect.x + 32, rect.y + 116),
+        )
+
+        picker_center_x = rect.centerx
+        up_rect = pygame.Rect(0, rect.y + 154, 74, 42)
+        up_rect.centerx = picker_center_x
+        value_rect = pygame.Rect(0, up_rect.bottom + 8, 130, 58)
+        value_rect.centerx = picker_center_x
+        down_rect = pygame.Rect(0, value_rect.bottom + 8, 74, 42)
+        down_rect.centerx = picker_center_x
+        draw_modal_button(screen, up_rect, "▲", large_font, quantity < max_quantity, False)
+        pygame.draw.rect(screen, (20, 32, 58), value_rect, border_radius=8)
+        pygame.draw.rect(screen, ACCENT, value_rect, 2, border_radius=8)
+        value_surface = large_font.render(str(quantity), True, TEXT_COLOR)
+        screen.blit(value_surface, value_surface.get_rect(center=value_rect.center))
+        draw_modal_button(screen, down_rect, "▼", large_font, quantity > 1, False)
+
+        sell_rect = pygame.Rect(rect.x + 32, rect.bottom - 62, 170, 42)
+        cancel_rect = pygame.Rect(rect.right - 202, rect.bottom - 62, 170, 42)
+        draw_modal_button(screen, sell_rect, "Sell", body_font, True, True)
+        draw_modal_button(screen, cancel_rect, "Cancel", body_font, True, False)
+        pygame.display.flip()
+        clock.tick(60)
+
+
 def color_choice_modal(screen, clock, upgrade):
     title_font = pygame.font.SysFont("arial", 38, bold=True)
     body_font = pygame.font.SysFont("arial", 22)
@@ -1368,7 +1544,7 @@ def upgrades_modal_loop(screen, clock, players, player):
     title_font = pygame.font.SysFont("arial", 42, bold=True)
     body_font = pygame.font.SysFont("arial", 22)
     small_font = pygame.font.SysFont("arial", 20)
-    buy_rects = []
+    action_rects = []
     close_rect = pygame.Rect(0, 0, 0, 0)
     while True:
         for event in pygame.event.get():
@@ -1380,15 +1556,18 @@ def upgrades_modal_loop(screen, clock, players, player):
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 if close_rect.collidepoint(event.pos):
                     return None
-                for index, rect in buy_rects:
+                for action, index, rect in action_rects:
                     if rect.collidepoint(event.pos):
-                        result = attempt_upgrade_purchase(screen, clock, players, player, UPGRADE_CATALOG[index])
+                        if action == "sell":
+                            result = attempt_upgrade_sale(screen, clock, players, player, UPGRADE_CATALOG[index])
+                        else:
+                            result = attempt_upgrade_purchase(screen, clock, players, player, UPGRADE_CATALOG[index])
                         if result == "quit":
                             return "quit"
                         break
 
         screen = pygame.display.get_surface()
-        buy_rects, close_rect = draw_upgrades_modal(screen, title_font, body_font, small_font, player)
+        action_rects, close_rect = draw_upgrades_modal(screen, title_font, body_font, small_font, player)
         pygame.display.flip()
         clock.tick(60)
 
@@ -1412,6 +1591,19 @@ def attempt_upgrade_purchase(screen, clock, players, player, upgrade):
         if color_name is None:
             return None
     apply_upgrade_purchase(player, upgrade, color_name)
+    save_players(players)
+    return None
+
+
+def attempt_upgrade_sale(screen, clock, players, player, upgrade):
+    if not upgrade_can_sell(player, upgrade):
+        return upgrade_locked_modal(screen, clock, upgrade, "Nothing to sell")
+    quantity = sell_upgrade_modal(screen, clock, upgrade, player)
+    if quantity == "quit":
+        return "quit"
+    if not quantity:
+        return None
+    apply_upgrade_sale(player, upgrade, quantity)
     save_players(players)
     return None
 
