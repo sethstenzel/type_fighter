@@ -1695,6 +1695,8 @@ class MissionEngine:
         self.lesson_dir = Path(base_dir) / "lessons" / lesson_dir_name
         self.sfx_dir = Path(base_dir) / "sfx"
         self.gfx_dir = Path(base_dir) / "gfx"
+        self.pod_gfx_dir = self.gfx_dir / "pod"
+        self.drone_gfx_dir = self.gfx_dir / "drones"
         self.lesson_number = int(lesson_dir_name.split("_")[-1])
         self.player_mega_shot_available = player_mega_shot_available(player, self.lesson_number)
         self.player_shields_available = player_shield_available(player, self.lesson_number)
@@ -1717,33 +1719,33 @@ class MissionEngine:
         self.victory_sound = load_sound(self.sfx_dir / "victory.wav", 0.9)
         self.bg_music = load_sound(self.sfx_dir / "bg_music.wav", BG_MUSIC_VOLUME)
         self.bg_music_channel = play_looping_sound(self.bg_music, BG_MUSIC_FADE_IN_MS)
-        self.turret_image = load_image(self.gfx_dir / "turret.png")
+        self.turret_image = load_image(self.pod_gfx_dir / "turret.png")
         if self.turret_image is not None:
             self.turret_image = pygame.transform.smoothscale(self.turret_image, (TURRET_IMAGE_SIZE, TURRET_IMAGE_SIZE))
-        self.pod_image = load_image(self.gfx_dir / "pod.png")
+        self.pod_image = load_image(self.pod_gfx_dir / "pod.png")
         if self.pod_image is not None:
             self.pod_image = pygame.transform.smoothscale(self.pod_image, (POD_IMAGE_SIZE, POD_IMAGE_SIZE))
-        self.shot_image = load_image(self.gfx_dir / "shot.png")
+        self.shot_image = load_image(self.pod_gfx_dir / "shot.png")
         if self.shot_image is not None:
             self.shot_image = pygame.transform.smoothscale(self.shot_image, (SHOT_IMAGE_SIZE, SHOT_IMAGE_SIZE))
-        self.defense_drone_image = load_image(self.gfx_dir / "defense_drone_image.png")
+        self.defense_drone_image = load_image(self.drone_gfx_dir / "defense_drone_image.png")
         if self.defense_drone_image is not None:
             defense_drone_size = DEFENSE_DRONE_RADIUS * 2
             self.defense_drone_image = pygame.transform.smoothscale(
                 self.defense_drone_image,
                 (defense_drone_size, defense_drone_size),
             )
-        self.final_boss_image = load_image(self.gfx_dir / "final-boss.png")
+        self.final_boss_image = load_image(self.drone_gfx_dir / "final-boss.png")
         if self.final_boss_image is not None:
             self.final_boss_image = pygame.transform.smoothscale(
                 self.final_boss_image,
                 (FINAL_BOSS_IMAGE_SIZE, FINAL_BOSS_IMAGE_SIZE),
             )
         self.drone_images = {
-            "yellow": load_image(self.gfx_dir / "yellow_drone.png"),
-            "orange": load_image(self.gfx_dir / "orange_drone.png"),
-            "red": load_image(self.gfx_dir / "red_drone.png"),
-            "semi_boss": load_image(self.gfx_dir / "semi-boss.png"),
+            "yellow": load_image(self.drone_gfx_dir / "yellow_drone.png"),
+            "orange": load_image(self.drone_gfx_dir / "orange_drone.png"),
+            "red": load_image(self.drone_gfx_dir / "red_drone.png"),
+            "semi_boss": load_image(self.drone_gfx_dir / "semi-boss.png"),
         }
         self.drone_image_cache = {}
 
