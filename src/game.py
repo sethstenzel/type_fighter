@@ -21,6 +21,7 @@ TEXT_COLOR = (230, 238, 255)
 MUTED_TEXT = (138, 150, 178)
 ACCENT = (72, 209, 204)
 LOCKED_SELECTED = (245, 203, 92)
+MENU_WHEEL_SCROLL_COOLDOWN_MS = 90
 STARTING_LIVES = 3
 PLAYER_SHIELD_MAX_CHARGES = 3
 DEFAULT_POD = {"color": "blue", "type": "standard", "upgrades": []}
@@ -180,6 +181,14 @@ def wheel_menu_step(event):
     if event.y < 0:
         return 1
     return 0
+
+
+def should_apply_menu_wheel(event, last_scroll_time):
+    step = wheel_menu_step(event)
+    now = pygame.time.get_ticks()
+    if step == 0 or now - last_scroll_time < MENU_WHEEL_SCROLL_COOLDOWN_MS:
+        return 0, last_scroll_time
+    return step, now
 
 
 def load_battle_image(path, size):
@@ -764,6 +773,7 @@ def player_select_loop(screen, clock):
     stars = create_star_field()
     player_rects = []
     mock_battle = create_mock_battle()
+    last_wheel_scroll_time = 0
 
     while True:
         update_star_field(stars, clock.get_time() / 1000)
@@ -809,15 +819,11 @@ def player_select_loop(screen, clock):
                     for index, rect in player_rects:
                         if rect.collidepoint(event.pos):
                             return players, players[index]
-                elif event.button == 4:
-                    selected = (selected - 1) % len(players)
-                    delete_confirm = False
-                elif event.button == 5:
-                    selected = (selected + 1) % len(players)
-                    delete_confirm = False
             if event.type == pygame.MOUSEWHEEL and players:
-                selected = (selected + wheel_menu_step(event)) % len(players)
-                delete_confirm = False
+                step, last_wheel_scroll_time = should_apply_menu_wheel(event, last_wheel_scroll_time)
+                if step:
+                    selected = (selected + step) % len(players)
+                    delete_confirm = False
 
         screen = pygame.display.get_surface()
         width, height = screen.get_size()
@@ -1266,6 +1272,7 @@ def menu_loop(screen, clock, players, player):
     upgrades_button_rect = None
     upgrades_image = load_ui_image(BASE_DIR / "gfx" / "upgrades.png")
     mock_battle = create_mock_battle()
+    last_wheel_scroll_time = 0
 
     while True:
         update_star_field(stars, clock.get_time() / 1000)
@@ -1318,11 +1325,10 @@ def menu_loop(screen, clock, players, player):
                                 selected = min(index + 1, unlocked_lesson_count(player) - 1)
                             pygame.event.clear((pygame.KEYDOWN, pygame.KEYUP, pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP))
                         break
-            if event.type == pygame.MOUSEBUTTONDOWN and event.button in (4, 5):
-                direction = -1 if event.button == 4 else 1
-                selected = (selected + direction) % len(LESSONS)
             if event.type == pygame.MOUSEWHEEL:
-                selected = (selected + wheel_menu_step(event)) % len(LESSONS)
+                step, last_wheel_scroll_time = should_apply_menu_wheel(event, last_wheel_scroll_time)
+                if step:
+                    selected = (selected + step) % len(LESSONS)
 
         screen = pygame.display.get_surface()
         width, height = screen.get_size()
@@ -1390,6 +1396,16 @@ def menu_loop(screen, clock, players, player):
         clock.tick(60)
 
 
+def set_window_metadata():
+    pygame.display.set_caption("Type Fighter")
+    for icon_name in ("type-fighter-icon.png", "type-fighter-icon.ico"):
+        try:
+            pygame.display.set_icon(pygame.image.load(str(BASE_DIR / "gfx" / icon_name)))
+            return
+        except (OSError, pygame.error):
+            pass
+
+
 def main():
     pygame.init()
     try:
@@ -1397,14 +1413,10 @@ def main():
     except pygame.error:
         pass
 
+    set_window_metadata()
     screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
     if hasattr(pygame.display, "set_minimum_size"):
         pygame.display.set_minimum_size(*MIN_SCREEN_SIZE)
-    pygame.display.set_caption("Type Fighter")
-    try:
-        pygame.display.set_icon(pygame.image.load(str(BASE_DIR / "gfx" / "type-fighter-icon.ico")).convert_alpha())
-    except (OSError, pygame.error):
-        pass
     clock = pygame.time.Clock()
 
     try:

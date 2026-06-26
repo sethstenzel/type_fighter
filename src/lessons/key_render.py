@@ -5,12 +5,29 @@ import pygame
 
 SPACE_KEY = "space"
 SPACE_SYMBOL = "␣"
+SHORT_KEY_LABELS = {
+    "enter": "ENT",
+    "return": "ENT",
+    "backspace": "BSP",
+    "escape": "ESC",
+    "esc": "ESC",
+    "tab": "TAB",
+    "shift": "SFT",
+    "control": "CTL",
+    "ctrl": "CTL",
+    "alt": "ALT",
+    "caps lock": "CAP",
+    "capslock": "CAP",
+}
 _SPACEBAR_PATH = Path(__file__).resolve().parents[1] / "gfx" / "spacebar.svg"
 _RAW_SPACEBAR = None
 _SPACEBAR_CACHE = {}
 
 
 def display_key(key):
+    normalized = str(key).strip().lower()
+    if normalized in SHORT_KEY_LABELS:
+        return SHORT_KEY_LABELS[normalized]
     if key == SPACE_KEY:
         return SPACE_SYMBOL
     return key.upper() if len(key) == 1 and key.isalpha() else key.upper()

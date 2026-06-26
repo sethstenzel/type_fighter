@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import json
 import math
 import random
 from pathlib import Path
@@ -46,6 +47,7 @@ DEFENSE_DRONE_SHOT_SPEED = 560
 DEFENSE_DRONE_SHOT_RADIUS = 4
 DEFENSE_DRONE_COLLISION_RADIUS = 16
 DEFENSE_DRONE_LINE_OF_SIGHT_BLOCK_RADIUS = POD_IMAGE_SIZE // 2
+DEFENSE_DRONE_ACCURACY_GRACE_MS = 3000
 
 START_SPAWN_INTERVAL_MS = 6000
 MIN_SPAWN_INTERVAL_MS = 2000
@@ -54,6 +56,7 @@ MAX_DRONE_SPAWN_RATE = 0.5
 SPAWN_RATE_CHANGE_MS = 15000
 KILLS_PER_DIFFICULTY_TIER = 5
 STARTING_LIVES = 3
+ENERGY_SAVER_BONUS_CREDITS = 50
 DRONE_SPEED_BONUS_PER_TIER = 6
 MINI_BOSS_INTERVAL = 10
 MEGA_DRONE_HP = 5
@@ -104,6 +107,9 @@ MEGA_SHIELD_MIN_LEVEL = 3
 MEGA_FINAL_KILL_LEVEL = 5
 POWER_UP_DURATION_MS = 5000
 POWER_UP_WARNING_MS = 2000
+MISSION_HINT_IMAGE_SIZE = 200
+MISSION_BRIEFING_SCROLL_END_BUFFER_SECONDS = 8
+MISSION_BRIEFING_FALLBACK_SCROLL_SECONDS = 120
 MAX_LIFE_POWER_UPS_PER_MISSION = 4
 POWER_UP_MIN_INTERVAL_MS = 18000
 POWER_UP_MAX_INTERVAL_MS = 32000
@@ -119,10 +125,15 @@ SPECIAL_KEY_LABELS = {
     pygame.K_SPACE: "space",
     pygame.K_RETURN: "enter",
     pygame.K_BACKSPACE: "backspace",
+    pygame.K_ESCAPE: "escape",
     pygame.K_TAB: "tab",
     pygame.K_CAPSLOCK: "caps lock",
     pygame.K_LSHIFT: "shift",
     pygame.K_RSHIFT: "shift",
+    pygame.K_LCTRL: "control",
+    pygame.K_RCTRL: "control",
+    pygame.K_LALT: "alt",
+    pygame.K_RALT: "alt",
 }
 
 
@@ -172,6 +183,8 @@ class DefenseDrone:
     angle: float
     next_fire_time: int = 0
     active: bool = True
+    last_shot_key: str | None = None
+    last_shot_grace_until: int = 0
 
 
 @dataclass
@@ -312,6 +325,109 @@ def load_image(path):
         return pygame.image.load(str(path)).convert_alpha()
     except (OSError, pygame.error):
         return None
+
+
+def read_text(path):
+    try:
+        return Path(path).read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def load_json_object(path):
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def audio_duration_ms(path):
+    if not pygame.mixer.get_init():
+        return 0
+    try:
+        return int(pygame.mixer.Sound(str(path)).get_length() * 1000)
+    except pygame.error:
+        return 0
+
+
+def wrap_text(text, font, max_width):
+    lines = []
+    for paragraph in text.splitlines():
+        words = paragraph.split()
+        if not words:
+            lines.append("")
+            continue
+        line = words[0]
+        for word in words[1:]:
+            candidate = f"{line} {word}"
+            if font.size(candidate)[0] <= max_width:
+                line = candidate
+            else:
+                lines.append(line)
+                line = word
+        lines.append(line)
+    return lines
+
+
+def draw_wrapped_text(surface, text, font, color, rect, line_spacing=6):
+    y = rect.y
+    line_height = font.get_linesize() + line_spacing
+    max_lines = max(1, rect.height // line_height)
+    lines = wrap_text(text, font, rect.width)
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+        if lines:
+            while lines[-1] and font.size(lines[-1] + "...")[0] > rect.width:
+                lines[-1] = lines[-1][:-1].rstrip()
+            lines[-1] = lines[-1] + "..."
+    for line in lines:
+        surface.blit(font.render(line, True, color), (rect.x, y))
+        y += line_height
+
+
+def draw_wrapped_centered_text(surface, text, font, color, rect, line_spacing=6):
+    y = rect.y
+    line_height = font.get_linesize() + line_spacing
+    max_lines = max(1, rect.height // line_height)
+    lines = wrap_text(text, font, rect.width)
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+        if lines:
+            while lines[-1] and font.size(lines[-1] + "...")[0] > rect.width:
+                lines[-1] = lines[-1][:-1].rstrip()
+            lines[-1] = lines[-1] + "..."
+    for line in lines:
+        line_surface = font.render(line, True, color)
+        surface.blit(line_surface, line_surface.get_rect(center=(rect.centerx, y + line_surface.get_height() / 2)))
+        y += line_height
+
+
+def draw_scrollable_text(surface, text, font, color, rect, scroll_y, line_spacing=6):
+    line_height = font.get_height() + line_spacing
+    lines = wrap_text(text, font, rect.width - 44)
+    max_scroll = max(0, len(lines) * line_height - rect.height + 44)
+    scroll_y = max(0, min(scroll_y, max_scroll))
+    pygame.draw.rect(surface, (8, 15, 30), rect, border_radius=6)
+    pygame.draw.rect(surface, (42, 58, 92), rect, 1, border_radius=6)
+    clip = surface.get_clip()
+    surface.set_clip(rect.inflate(-20, -20))
+    y = rect.y + 16 - scroll_y
+    for line in lines:
+        if rect.y - line_height <= y <= rect.bottom:
+            render_inline_text(surface, line, font, color, (rect.x + 18, y))
+        y += line_height
+    surface.set_clip(clip)
+    if max_scroll:
+        track_rect = pygame.Rect(rect.right - 8, rect.y + 6, 4, rect.height - 12)
+        pygame.draw.rect(surface, (30, 42, 68), track_rect, border_radius=2)
+        visible_height = max(1, rect.height - 44)
+        content_height = max(visible_height, len(lines) * line_height)
+        thumb_height = max(18, int(track_rect.height * visible_height / content_height))
+        travel = max(1, track_rect.height - thumb_height)
+        thumb_y = track_rect.y + int(travel * scroll_y / max_scroll)
+        pygame.draw.rect(surface, ACCENT, (track_rect.x, thumb_y, track_rect.width, thumb_height), border_radius=2)
+    return max_scroll
 
 
 def event_to_lesson_key(event):
@@ -1196,22 +1312,22 @@ def draw_final_boss(screen, final_boss, final_boss_image=None):
     render_key_label(screen, final_boss.letter, label_font, (8, 10, 18), final_boss.pos, final_boss.radius * 1.25)
 
 
-def draw_mega_bar(screen, font, mega_text, charge_blocks=0, active=False):
+def draw_mega_bar(screen, font, mega_text, charge_blocks=0, active=False, center_x=None):
     if not mega_text:
         return
     width, _ = screen.get_size()
+    if center_x is None:
+        center_x = width / 2
     block_size = 22
-    gap = 4
+    gap = 5
     bar_width = MEGA_CHARGE_MAX_BLOCKS * block_size + (MEGA_CHARGE_MAX_BLOCKS - 1) * gap
-    bar_height = block_size
-    bar_rect = pygame.Rect(0, 0, bar_width, bar_height)
-    bar_rect.center = (width / 2, 51)
+    bar_rect = pygame.Rect(0, 0, bar_width, block_size)
+    bar_rect.center = (center_x, 51)
 
-    bg_color = (35, 39, 48)
-    fill_color = MEGA_SHOT_COLOR if active else (92, 98, 110)
-    frame_color = (105, 116, 135) if active else (55, 60, 70)
+    frame_color = (158, 93, 98) if active else (82, 58, 62)
+    empty_color = (43, 28, 34)
+    fill_color = (166, 82, 90) if active else (92, 70, 74)
 
-    pygame.draw.rect(screen, frame_color, bar_rect, 2)
     for index in range(MEGA_CHARGE_MAX_BLOCKS):
         block_rect = pygame.Rect(
             bar_rect.x + index * (block_size + gap),
@@ -1219,29 +1335,28 @@ def draw_mega_bar(screen, font, mega_text, charge_blocks=0, active=False):
             block_size,
             block_size,
         )
-        pygame.draw.rect(screen, bg_color, block_rect)
+        pygame.draw.rect(screen, empty_color, block_rect, border_radius=4)
+        pygame.draw.rect(screen, frame_color, block_rect, 2, border_radius=4)
         if index < charge_blocks:
-            pygame.draw.rect(screen, fill_color, block_rect.inflate(-4, -4))
-        pygame.draw.rect(screen, frame_color, block_rect, 1)
+            pygame.draw.rect(screen, fill_color, block_rect.inflate(-6, -6), border_radius=3)
 
-    text_color = MEGA_SHOT_COLOR
+    text_color = (218, 136, 142) if active else (118, 90, 96)
     text_surface = font.render(mega_text, True, text_color)
-    screen.blit(text_surface, text_surface.get_rect(center=(width / 2, 28)))
-    note_font = pygame.font.SysFont("arial", 15, bold=True)
-    note_surface = note_font.render("Hold Space Bar When Firing", True, text_color)
-    screen.blit(note_surface, note_surface.get_rect(center=(width / 2, 76)))
+    screen.blit(text_surface, text_surface.get_rect(center=(center_x, 28)))
 
 
-def draw_player_shield_bar(screen, font, charges, enabled, y_offset=0, max_charges=PLAYER_SHIELD_MAX_CHARGES):
+def draw_player_shield_bar(screen, font, charges, enabled, y_offset=0, max_charges=PLAYER_SHIELD_MAX_CHARGES, center_x=None):
     if not enabled:
         return
     width, _ = screen.get_size()
+    if center_x is None:
+        center_x = width / 2
     block_size = 22
     gap = 5
     max_charges = max(1, max_charges)
     bar_width = max_charges * block_size + (max_charges - 1) * gap
     bar_rect = pygame.Rect(0, 0, bar_width, block_size)
-    bar_rect.center = (width / 2, 91 + y_offset)
+    bar_rect.center = (center_x, 51 + y_offset)
 
     frame_color = (70, 154, 190)
     empty_color = (22, 34, 48)
@@ -1268,7 +1383,7 @@ def draw_player_shield_bar(screen, font, charges, enabled, y_offset=0, max_charg
     text_surface = font.render("Shield", True, FINAL_BOSS_SHIELD_COLOR if charges else (80, 95, 110))
     if not charges:
         text_surface.set_alpha(155)
-    screen.blit(text_surface, text_surface.get_rect(center=(width / 2, 70 + y_offset)))
+    screen.blit(text_surface, text_surface.get_rect(center=(center_x, 28 + y_offset)))
 
 
 def draw_active_player_shield(screen, center, expires_at, hits_remaining, now):
@@ -1341,18 +1456,37 @@ def draw_star_field(screen, stars):
         screen.blit(star_surface, (x, y))
 
 
-def draw_end_screen(screen, clock, won, destroyed, drone_target, score, hits_taken, credits_earned):
+def draw_end_screen(
+    screen,
+    clock,
+    won,
+    destroyed,
+    drone_target,
+    score,
+    hits_taken,
+    credits_earned,
+    accurate_inputs,
+    inaccurate_inputs,
+    inaccurate_keys,
+):
     title_font = pygame.font.SysFont("arial", 56, bold=True)
     body_font = pygame.font.SysFont("arial", 26)
     small_font = pygame.font.SysFont("arial", 20)
     title = "MISSION COMPLETE" if won else "MISSION FAILED"
     destroyed_count = int(min(destroyed, drone_target))
-    rows = (
+    accuracy_inputs = accurate_inputs + inaccurate_inputs
+    accuracy_percent = 100 if accuracy_inputs == 0 else round(accurate_inputs * 100 / accuracy_inputs)
+    rows = [
         ("Points", str(score)),
         ("Hits taken", str(hits_taken)),
         ("Drones destroyed", f"{destroyed_count}/{drone_target}"),
+        ("Accuracy", f"{accuracy_percent}%"),
+        ("Accurate keys", str(accurate_inputs)),
+        ("Inaccurate keys", str(inaccurate_inputs)),
         ("Credits earned", str(credits_earned)),
-    )
+    ]
+    if 0 < inaccurate_inputs < 5:
+        rows.insert(-1, ("Incorrect keys", ", ".join(display_key(key) for key in inaccurate_keys)))
     prompt = "Press ␣ to return to the menu"
 
     while True:
@@ -1372,20 +1506,22 @@ def draw_end_screen(screen, clock, won, destroyed, drone_target, score, hits_tak
 
         screen.fill(BG_COLOR)
         width, height = screen.get_size()
-        modal_rect = pygame.Rect(0, 0, min(560, width - 80), 430)
+        modal_rect = pygame.Rect(0, 0, min(600, width - 80), min(640, height - 32))
         modal_rect.center = (width / 2, height / 2)
         pygame.draw.rect(screen, (10, 18, 34), modal_rect, border_radius=8)
         pygame.draw.rect(screen, ACCENT if won else THREE_SHOT_DRONE_COLOR, modal_rect, 2, border_radius=8)
         title_surface = title_font.render(title, True, ACCENT if won else THREE_SHOT_DRONE_COLOR)
         screen.blit(title_surface, title_surface.get_rect(center=(width / 2, modal_rect.y + 72)))
         for index, (label, value) in enumerate(rows):
-            y = modal_rect.y + 142 + index * 48
+            y = modal_rect.y + 132 + index * 40
             label_surface = body_font.render(label, True, MUTED_TEXT)
             value_surface = body_font.render(value, True, TEXT_COLOR)
             screen.blit(label_surface, (modal_rect.x + 58, y))
             screen.blit(value_surface, (modal_rect.right - value_surface.get_width() - 58, y))
         if won and hits_taken == 0:
-            render_inline_center(screen, "No Damage Taken Bonus: +25 credits", small_font, ACCENT, (width / 2, modal_rect.bottom - 88))
+            render_inline_center(screen, "No Damage Taken Bonus: +25 credits", small_font, ACCENT, (width / 2, modal_rect.bottom - 126))
+        if won and inaccurate_inputs == 0:
+            render_inline_center(screen, "Energy Saver Bonus: +50 credits", small_font, ACCENT, (width / 2, modal_rect.bottom - 92))
         render_inline_center(screen, prompt, body_font, MUTED_TEXT, (width / 2, modal_rect.bottom - 45))
         pygame.display.flip()
         clock.tick(60)
@@ -1398,6 +1534,88 @@ def draw_button(surface, rect, text, font, selected=False):
     pygame.draw.rect(surface, border, rect, 2, border_radius=8)
     label = font.render(text, True, TEXT_COLOR)
     surface.blit(label, label.get_rect(center=rect.center))
+
+
+def load_mission_hint_images(lesson_dir, lesson_number):
+    hint_images = []
+    for index in range(1, 4):
+        image = load_image(lesson_dir / f"mission_hint_l{lesson_number}_{index}.png")
+        if image is not None:
+            hint_images.append((index, image))
+    return hint_images
+
+
+def mission_hint_text(hint_texts, index):
+    return str(hint_texts.get(f"mission_hint_{index}", "")).strip()
+
+
+def draw_mission_briefing_modal(screen, lesson_number, instructions_text, hint_images, hint_texts, instruction_scroll):
+    width, height = screen.get_size()
+    overlay = pygame.Surface((width, height), pygame.SRCALPHA)
+    overlay.fill((2, 5, 13, 210))
+    screen.blit(overlay, (0, 0))
+
+    title_font = pygame.font.SysFont("arial", 42, bold=True)
+    body_font = pygame.font.SysFont("arial", 21)
+    hint_font = pygame.font.SysFont("arial", 17)
+    button_font = pygame.font.SysFont("arial", 26, bold=True)
+
+    modal_width = min(width - 64, 980)
+    modal_height = min(height - 32, 740)
+    modal_rect = pygame.Rect(0, 0, modal_width, modal_height)
+    modal_rect.center = (width / 2, height / 2)
+
+    pygame.draw.rect(screen, (10, 18, 36), modal_rect, border_radius=8)
+    pygame.draw.rect(screen, ACCENT, modal_rect, 2, border_radius=8)
+
+    title = title_font.render(f"Lesson {lesson_number}", True, TEXT_COLOR)
+    screen.blit(title, title.get_rect(center=(width / 2, modal_rect.y + 52)))
+
+    content_margin = 44
+    button_rect = pygame.Rect(0, modal_rect.bottom - 78, 190, 48)
+    button_rect.centerx = modal_rect.centerx
+
+    image_size = 0
+    image_y = 0
+    if hint_images:
+        available_width = modal_rect.width - content_margin * 2
+        gap = 24
+        image_size = min(MISSION_HINT_IMAGE_SIZE, int((available_width - gap * (len(hint_images) - 1)) / len(hint_images)))
+        image_size = max(96, image_size)
+        image_y = max(modal_rect.y + 190, button_rect.y - image_size - 110)
+    text_bottom = image_y - 18 if hint_images else button_rect.y - 18
+    text_rect = pygame.Rect(
+        modal_rect.x + content_margin,
+        modal_rect.y + 96,
+        modal_rect.width - content_margin * 2,
+        max(70, text_bottom - (modal_rect.y + 96)),
+    )
+    max_instruction_scroll = draw_scrollable_text(
+        screen,
+        instructions_text,
+        body_font,
+        MUTED_TEXT,
+        text_rect,
+        instruction_scroll,
+    )
+
+    if hint_images:
+        available_width = modal_rect.width - content_margin * 2
+        gap = 24
+        total_width = len(hint_images) * image_size + (len(hint_images) - 1) * gap
+        x = modal_rect.centerx - total_width / 2
+        for index, image in hint_images:
+            rect = pygame.Rect(int(x), int(image_y), image_size, image_size)
+            scaled = pygame.transform.smoothscale(image, (image_size, image_size))
+            screen.blit(scaled, rect)
+            hint_text = mission_hint_text(hint_texts, index)
+            hint_rect = pygame.Rect(rect.x, rect.bottom + 8, rect.width, button_rect.y - rect.bottom - 34)
+            if hint_text:
+                draw_wrapped_centered_text(screen, hint_text, hint_font, MUTED_TEXT, hint_rect, line_spacing=2)
+            x += image_size + gap
+
+    draw_button(screen, button_rect, "Start", button_font, True)
+    return button_rect, max_instruction_scroll
 
 
 def pause_menu(screen, clock):
@@ -1485,7 +1703,11 @@ class MissionEngine:
         self.focus_keys = lesson_focus_keys(self.lesson_number, self.target_keys)
         self.drone_target = lesson_drone_target(self.lesson_number)
         self.mini_boss_numbers = mini_boss_numbers_for_lesson(self.lesson_number, self.drone_target)
-        play_audio(self.lesson_dir / f"lesson_{self.lesson_number}_instructions.wav")
+        self.instructions_audio_path = self.lesson_dir / f"lesson_{self.lesson_number}_instructions.wav"
+        self.instructions_audio_duration_ms = audio_duration_ms(self.instructions_audio_path)
+        self.instructions_text = read_text(self.lesson_dir / f"lesson_{self.lesson_number}_instructions.txt")
+        self.hint_images = load_mission_hint_images(self.lesson_dir, self.lesson_number)
+        self.hint_texts = load_json_object(self.lesson_dir / f"mission_hints_l{self.lesson_number}.json")
         self.laser_sound = load_sound(self.sfx_dir / "laser.ogg", 0.55)
         self.explosion_sound = load_sound(self.sfx_dir / "explosion.ogg", 0.75)
         self.health_sound = load_sound(self.sfx_dir / "health.ogg", 0.85)
@@ -1549,6 +1771,9 @@ class MissionEngine:
         self.spawned_count = 0
         self.score = 0
         self.hits_taken = 0
+        self.accurate_inputs = 0
+        self.inaccurate_inputs = 0
+        self.inaccurate_keys = []
         self.credits_awarded = False
         self.lives = max(STARTING_LIVES, self._player_int("lives", STARTING_LIVES, 1))
         self.shield_charges = self._player_int("shield_charges", 0, 0, self.max_shield_charges)
@@ -1565,6 +1790,66 @@ class MissionEngine:
         self.next_spawn_rate_change_time = pygame.time.get_ticks() + SPAWN_RATE_CHANGE_MS
         self.next_spawn_time = pygame.time.get_ticks()
         self.next_power_up_spawn_time = next_power_up_time(self.next_spawn_time)
+
+    def _run_mission_briefing(self):
+        play_audio(self.instructions_audio_path)
+        previous_mouse_visible = pygame.mouse.get_visible()
+        pygame.mouse.set_visible(True)
+        briefing_started_at = pygame.time.get_ticks()
+        start_button = pygame.Rect(0, 0, 0, 0)
+        instruction_scroll = 0
+        max_instruction_scroll = 0
+        audio_seconds = self.instructions_audio_duration_ms / 1000 if self.instructions_audio_duration_ms > 0 else MISSION_BRIEFING_FALLBACK_SCROLL_SECONDS
+        scroll_duration = max(1, audio_seconds - MISSION_BRIEFING_SCROLL_END_BUFFER_SECONDS)
+        scroll_speed = 0
+        try:
+            while True:
+                now = pygame.time.get_ticks()
+                dt = self.clock.tick(60) / 1000
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
+                        stop_audio()
+                        return "quit"
+                    if event.type == pygame.VIDEORESIZE:
+                        self.screen = enforce_min_window_size(self.screen)
+                    if event.type == pygame.KEYDOWN:
+                        if event.key == pygame.K_F11:
+                            self.screen = toggle_fullscreen()
+                        elif event.key in (pygame.K_DOWN, pygame.K_s):
+                            instruction_scroll = min(max_instruction_scroll, instruction_scroll + 42)
+                        elif event.key in (pygame.K_UP, pygame.K_w):
+                            instruction_scroll = max(0, instruction_scroll - 42)
+                        elif event.key == pygame.K_PAGEDOWN:
+                            instruction_scroll = min(max_instruction_scroll, instruction_scroll + 210)
+                        elif event.key == pygame.K_PAGEUP:
+                            instruction_scroll = max(0, instruction_scroll - 210)
+                        elif event.key == pygame.K_SPACE:
+                            stop_audio()
+                            self._shift_gameplay_timers(pygame.time.get_ticks() - briefing_started_at)
+                            return "start"
+                    if event.type == pygame.MOUSEWHEEL:
+                        instruction_scroll = max(0, min(max_instruction_scroll, instruction_scroll - event.y * 36))
+                    if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                        if start_button.collidepoint(event.pos):
+                            stop_audio()
+                            self._shift_gameplay_timers(pygame.time.get_ticks() - briefing_started_at)
+                            return "start"
+
+                instruction_scroll = min(max_instruction_scroll, instruction_scroll + scroll_speed * dt)
+                self._draw_frame(now, present=False)
+                start_button, max_instruction_scroll = draw_mission_briefing_modal(
+                    self.screen,
+                    self.lesson_number,
+                    self.instructions_text,
+                    self.hint_images,
+                    self.hint_texts,
+                    instruction_scroll,
+                )
+                scroll_speed = max_instruction_scroll / scroll_duration if max_instruction_scroll else 0
+                instruction_scroll = max(0, min(instruction_scroll, max_instruction_scroll))
+                pygame.display.flip()
+        finally:
+            pygame.mouse.set_visible(previous_mouse_visible)
 
     def _player_int(self, key, default, minimum=0, maximum=None):
         if self.player is None:
@@ -1598,6 +1883,8 @@ class MissionEngine:
             credits += 50
             if self.hits_taken == 0:
                 credits += 25
+            if self.inaccurate_inputs == 0:
+                credits += ENERGY_SAVER_BONUS_CREDITS
         return credits
 
     def _award_credits(self, credits_earned):
@@ -1638,6 +1925,25 @@ class MissionEngine:
         self._save_player_resources()
         return result
 
+    def _record_accurate_input(self):
+        self.accurate_inputs += 1
+
+    def _record_inaccurate_input(self):
+        self.inaccurate_inputs += 1
+
+    def _record_inaccurate_key(self, key):
+        self._record_inaccurate_input()
+        if len(self.inaccurate_keys) < 4:
+            self.inaccurate_keys.append(key)
+
+    def _defense_drone_accuracy_grace_active(self, pressed_key, now):
+        if pressed_key is None:
+            return False
+        return any(
+            defense_drone.last_shot_key == pressed_key and now <= defense_drone.last_shot_grace_until
+            for defense_drone in self.defense_drones
+        )
+
     def _show_end_screen(self, won):
         self._save_player_resources()
         credits_earned = self._calculate_credits_earned(won)
@@ -1653,6 +1959,9 @@ class MissionEngine:
             self.score,
             self.hits_taken,
             credits_earned,
+            self.accurate_inputs,
+            self.inaccurate_inputs,
+            self.inaccurate_keys,
         )
 
     def _boss_player_target_center(self):
@@ -1700,6 +2009,9 @@ class MissionEngine:
                 self.final_boss.next_shield_recharge_time += elapsed_ms
         for drone in self.drones:
             drone.next_shot_time = self._shift_timer(drone.next_shot_time, elapsed_ms)
+        for defense_drone in self.defense_drones:
+            defense_drone.next_fire_time = self._shift_timer(defense_drone.next_fire_time, elapsed_ms)
+            defense_drone.last_shot_grace_until = self._shift_timer(defense_drone.last_shot_grace_until, elapsed_ms)
         for bullet in self.bullets:
             bullet.next_trail_time = self._shift_timer(bullet.next_trail_time, elapsed_ms)
         for mega_shot in self.mega_shots:
@@ -1755,10 +2067,9 @@ class MissionEngine:
             pygame.Rect(0, max(0, height - 68), width, 68),
         ]
         if self.player_mega_shot_available:
-            rects.append(pygame.Rect(width / 2 - 150, 8, 300, 82))
+            rects.append(pygame.Rect(width / 2 - 260, 8, 520, 82))
         if self.player_shields_available:
-            shield_y = 70 + (32 if self.player_mega_shot_available else 0)
-            rects.append(pygame.Rect(width / 2 - 170, shield_y - 16, 340, 60))
+            rects.append(pygame.Rect(width / 2 - 260, 8, 520, 82))
         return rects
 
     def _spawn_entities(self, now):
@@ -1819,7 +2130,7 @@ class MissionEngine:
         ):
             self._start_final_boss_encounter(now)
 
-    def _draw_frame(self, now):
+    def _draw_frame(self, now, present=True):
         self.screen = pygame.display.get_surface()
         if self.active_shield_hits > 0 and now >= self.active_shield_expires_at:
             self._clear_active_shield()
@@ -1882,15 +2193,22 @@ class MissionEngine:
         if self.player_mega_shot_available:
             mega_text = "Mega shot"
             mega_active = self.mega_charge_blocks > 0
-        draw_mega_bar(self.screen, self.font, mega_text, self.mega_charge_blocks, mega_active)
-        shield_offset = 32 if self.player_mega_shot_available else 0
+        width, _ = self.screen.get_size()
+        if self.player_mega_shot_available and self.player_shields_available:
+            mega_center_x = width / 2 - 112
+            shield_center_x = width / 2 + 112
+        else:
+            mega_center_x = width / 2
+            shield_center_x = width / 2
+        draw_mega_bar(self.screen, self.font, mega_text, self.mega_charge_blocks, mega_active, mega_center_x)
         draw_player_shield_bar(
             self.screen,
             self.font,
             self.shield_charges,
             self.player_shields_available,
-            shield_offset,
+            0,
             self.max_shield_charges,
+            shield_center_x,
         )
         draw_hud(self.screen, self.font, min(self.destroyed, self.drone_target), self.drone_target, self.score, self.lives)
 
@@ -1898,7 +2216,8 @@ class MissionEngine:
         hint = f"Press {key_hint} to fire. F11 toggles max size. Esc returns to menu."
         render_inline_text(self.screen, hint, pygame.font.SysFont("arial", 18), MUTED_TEXT, (22, height - 34))
 
-        pygame.display.flip()
+        if present:
+            pygame.display.flip()
 
     def _process_pending_shots(self, now, dt):
         while self.pending_shots and not target_is_available(self.pending_shots[0].target, self.drones, self.final_boss):
@@ -2053,6 +2372,8 @@ class MissionEngine:
             if now >= defense_drone.next_fire_time:
                 target = self._defense_drone_target(defense_pos)
                 if target is not None:
+                    defense_drone.last_shot_key = target.letter
+                    defense_drone.last_shot_grace_until = now + DEFENSE_DRONE_ACCURACY_GRACE_MS
                     direction = target.pos - defense_pos
                     if direction.length_squared() == 0:
                         direction = pygame.Vector2(0, -1)
@@ -2097,6 +2418,13 @@ class MissionEngine:
                 self.defense_shots.remove(shot)
 
     def run(self):
+        briefing_result = self._run_mission_briefing()
+        if briefing_result == "quit":
+            stop_looping_sound(self.bg_music_channel)
+            return self._finish("quit")
+        pygame.mouse.set_visible(False)
+        pygame.event.clear((pygame.KEYDOWN, pygame.KEYUP, pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP))
+
         while True:
             dt, now = self._begin_frame()
             for event in pygame.event.get():
@@ -2149,7 +2477,9 @@ class MissionEngine:
                         self.power_up = None
                         self.next_power_up_spawn_time = next_power_up_time(now)
                     if consumed_by_power_up:
+                        self._record_accurate_input()
                         continue
+                    shot_queued = False
                     if pressed_key in self.target_keys:
                         if (
                             self.player_mega_shot_available
@@ -2168,10 +2498,20 @@ class MissionEngine:
                                 now,
                             )
                             if queued_mega:
+                                self._record_accurate_input()
                                 self.mega_charge_blocks = 0
                                 self.next_mega_recharge_time = now + MEGA_RECHARGE_DELAY_MS
                                 continue
-                        queue_shot_at(self.drones, self.pending_shots, pressed_key, self.player_center, now)
+                        shot_queued = queue_shot_at(self.drones, self.pending_shots, pressed_key, self.player_center, now)
+                        if shot_queued:
+                            self._record_accurate_input()
+                    if (
+                        pressed_key is not None
+                        and not shot_queued
+                        and not started_space_charge
+                        and not self._defense_drone_accuracy_grace_active(pressed_key, now)
+                    ):
+                        self._record_inaccurate_key(pressed_key)
                 if event.type == pygame.KEYUP:
                     if event.key == pygame.K_SPACE:
                         self.space_held = False
