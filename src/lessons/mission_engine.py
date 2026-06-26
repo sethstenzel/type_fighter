@@ -6,6 +6,7 @@ from pathlib import Path
 import pygame
 
 from lessons.key_render import display_key, render_inline_center, render_inline_text, render_key_label
+from lessons.lesson_config import lesson_new_keys
 
 
 BASE_SCREEN_SIZE = (1024, 768)
@@ -87,6 +88,8 @@ FINAL_BOSS_ORBIT_SWITCH_MAX_MS = 30000
 MINI_BOSS_STRAFE_RANGE = 95
 MINI_BOSS_STRAFE_SPEED_SCALE = 0.45
 MINI_BOSS_CENTER_DISTANCE_SCALE = 0.25
+NEW_KEY_ONLY_DRONES_PER_MISSION = 15
+FINAL_BOSS_NEW_KEY_SPAWN_WEIGHT = 0.7
 PLAYER_SHIELD_MAX_CHARGES = 3
 PLAYER_SHIELD_START_LESSON = 7
 PLAYER_SHIELD_RECHARGE_MS = 20000
@@ -496,12 +499,21 @@ def spawn_position(screen):
     return pygame.Vector2(-margin, random.randint(0, height))
 
 
-def random_spawn_key(valid_keys, blocked_key=None):
+def lesson_focus_keys(lesson_number, valid_keys):
+    targetable_keys = tuple(valid_keys)
+    focus_keys = [key for key in lesson_new_keys(lesson_number) if key in targetable_keys]
+    return tuple(focus_keys[:2] or targetable_keys)
+
+
+def random_spawn_key(valid_keys, blocked_key=None, preferred_keys=(), preferred_weight=0.0):
     available_keys = [key for key in valid_keys if key != blocked_key]
+    weighted_keys = [key for key in preferred_keys if key in available_keys]
+    if weighted_keys and random.random() < preferred_weight:
+        return random.choice(weighted_keys)
     return random.choice(available_keys or list(valid_keys))
 
 
-def spawn_drone(drones, screen, destroyed, valid_keys, is_mega=False):
+def spawn_drone(drones, screen, destroyed, valid_keys, is_mega=False, spawn_keys=None):
     pos = spawn_position(screen)
     hp = drone_hp()
     speed_bonus = difficulty_tier(destroyed) * DRONE_SPEED_BONUS_PER_TIER
@@ -524,7 +536,7 @@ def spawn_drone(drones, screen, destroyed, valid_keys, is_mega=False):
             strafe_axis = pygame.Vector2(-approach.y, approach.x)
     drone = Drone(
         pos=pos,
-        letter=random_spawn_key(valid_keys),
+        letter=random_spawn_key(spawn_keys or valid_keys),
         hp=hp,
         max_hp=hp,
         radius=MEGA_DRONE_RADIUS if is_mega else drone_radius_for_hp(hp),
@@ -538,14 +550,16 @@ def spawn_drone(drones, screen, destroyed, valid_keys, is_mega=False):
     return drone
 
 
-def spawn_next_drone(drones, screen, destroyed, valid_keys, spawned_count, mini_boss_numbers):
+def spawn_next_drone(drones, screen, destroyed, valid_keys, spawned_count, mini_boss_numbers, focus_keys=()):
     spawned_count += 1
+    spawn_keys = focus_keys if spawned_count <= NEW_KEY_ONLY_DRONES_PER_MISSION else valid_keys
     drone = spawn_drone(
         drones,
         screen,
         destroyed,
         valid_keys,
         is_mega=spawned_count in mini_boss_numbers,
+        spawn_keys=spawn_keys,
     )
     return drone, spawned_count
 
@@ -620,7 +634,7 @@ def spawn_power_up(
     )
 
 
-def spawn_final_boss_semi_boss(drones, final_boss, center, valid_keys):
+def spawn_final_boss_semi_boss(drones, final_boss, center, valid_keys, focus_keys=()):
     direction = center - final_boss.pos
     if direction.length_squared() == 0:
         direction = pygame.Vector2(1, 0)
@@ -630,7 +644,12 @@ def spawn_final_boss_semi_boss(drones, final_boss, center, valid_keys):
     strafe_axis = pygame.Vector2(-direction.y, direction.x)
     drone = Drone(
         pos=spawn_pos,
-        letter=random_spawn_key(valid_keys, final_boss.letter),
+        letter=random_spawn_key(
+            valid_keys,
+            final_boss.letter,
+            focus_keys,
+            FINAL_BOSS_NEW_KEY_SPAWN_WEIGHT,
+        ),
         hp=MEGA_DRONE_HP,
         max_hp=MEGA_DRONE_HP,
         radius=MEGA_DRONE_RADIUS,
@@ -846,7 +865,7 @@ def polygon_points(center, radius, sides, rotation=-math.pi / 2):
     ]
 
 
-def spawn_final_boss(screen, now, valid_keys, player_center):
+def spawn_final_boss(screen, now, valid_keys, player_center, focus_keys=()):
     width, height = screen.get_size()
     spawn_pos = pygame.Vector2(-FINAL_BOSS_RADIUS - 28, height / 2)
     target_x = spawn_pos.x + (player_center.x - spawn_pos.x) * FINAL_BOSS_ENTRY_PROGRESS
@@ -854,7 +873,7 @@ def spawn_final_boss(screen, now, valid_keys, player_center):
     return FinalBoss(
         pos=spawn_pos,
         target_pos=target_pos,
-        letter=random.choice(valid_keys),
+        letter=random.choice(focus_keys or valid_keys),
         orbit_angle=0,
         orbit_radius=0,
         orbit_direction=random.choice((-1, 1)),
@@ -892,7 +911,7 @@ def update_final_boss_shield(final_boss, now):
     return
 
 
-def fire_mega_drone(drones, boss, center, valid_keys, blocked_key=None):
+def fire_mega_drone(drones, boss, center, valid_keys, blocked_key=None, focus_keys=()):
     direction = center - boss.pos
     if direction.length_squared() == 0:
         direction = pygame.Vector2(0, 1)
@@ -900,7 +919,12 @@ def fire_mega_drone(drones, boss, center, valid_keys, blocked_key=None):
     drones.append(
         Drone(
             pos=boss.pos + direction * (boss.radius + BOSS_SHOT_IMAGE_RADIUS + 4),
-            letter=random_spawn_key(valid_keys, blocked_key),
+            letter=random_spawn_key(
+                valid_keys,
+                blocked_key,
+                focus_keys,
+                FINAL_BOSS_NEW_KEY_SPAWN_WEIGHT,
+            ),
             hp=1,
             max_hp=1,
             radius=BOSS_SHOT_IMAGE_RADIUS,
@@ -911,7 +935,7 @@ def fire_mega_drone(drones, boss, center, valid_keys, blocked_key=None):
     )
 
 
-def fire_final_boss_drones(drones, final_boss, center, valid_keys, count=1):
+def fire_final_boss_drones(drones, final_boss, center, valid_keys, count=1, focus_keys=()):
     direction = center - final_boss.pos
     if direction.length_squared() == 0:
         direction = pygame.Vector2(0, 1)
@@ -929,7 +953,12 @@ def fire_final_boss_drones(drones, final_boss, center, valid_keys, count=1):
                     + shot_direction * (final_boss.radius + BOSS_SHOT_IMAGE_RADIUS + 6)
                     + side_offset
                 ),
-                letter=random_spawn_key(valid_keys, final_boss.letter),
+                letter=random_spawn_key(
+                    valid_keys,
+                    final_boss.letter,
+                    focus_keys,
+                    FINAL_BOSS_NEW_KEY_SPAWN_WEIGHT,
+                ),
                 hp=1,
                 max_hp=1,
                 radius=BOSS_SHOT_IMAGE_RADIUS,
@@ -1453,6 +1482,7 @@ class MissionEngine:
         self.player_shields_available = player_shield_available(player, self.lesson_number)
         self.max_shield_charges = player_shield_max_charges(player)
         self.target_keys = mission_target_keys(valid_keys, self.lesson_number, self.player_mega_shot_available)
+        self.focus_keys = lesson_focus_keys(self.lesson_number, self.target_keys)
         self.drone_target = lesson_drone_target(self.lesson_number)
         self.mini_boss_numbers = mini_boss_numbers_for_lesson(self.lesson_number, self.drone_target)
         play_audio(self.lesson_dir / f"lesson_{self.lesson_number}_instructions.wav")
@@ -1708,7 +1738,13 @@ class MissionEngine:
             release_pending_shot(self.pending_shots.pop(0))
         self.bullets.clear()
         self.mega_shots.clear()
-        self.final_boss = spawn_final_boss(self.screen, now, self.target_keys, self._boss_player_target_center())
+        self.final_boss = spawn_final_boss(
+            self.screen,
+            now,
+            self.target_keys,
+            self._boss_player_target_center(),
+            self.focus_keys,
+        )
         play_sound(self.boss_sound)
 
     def _power_up_blocked_rects(self):
@@ -1749,6 +1785,7 @@ class MissionEngine:
                 self.target_keys,
                 self.spawned_count,
                 self.mini_boss_numbers,
+                self.focus_keys,
             )
             if drone.is_mega:
                 play_sound(self.boss_sound)
@@ -1899,6 +1936,7 @@ class MissionEngine:
                 self.player_center,
                 self.target_keys,
                 final_boss_projectile_count(self.lesson_number),
+                self.focus_keys,
             )
             self.final_boss.next_shot_time = now + FINAL_BOSS_ATTACK_INTERVAL_MS
         if self.final_boss.next_semi_boss_spawn_time and now >= self.final_boss.next_semi_boss_spawn_time:
@@ -1907,6 +1945,7 @@ class MissionEngine:
                 self.final_boss,
                 self.player_center,
                 self.target_keys,
+                self.focus_keys,
             )
             play_sound(self.boss_sound)
             self.final_boss.next_semi_boss_spawn_time = now + FINAL_BOSS_SEMI_BOSS_SPAWN_INTERVAL_MS
@@ -1918,7 +1957,8 @@ class MissionEngine:
             drone.rotation = (drone.rotation + drone_rotation_radians_per_second(drone) * dt) % math.tau
             if drone.is_mega and now >= drone.next_shot_time:
                 blocked_key = self.final_boss.letter if self.final_boss is not None else None
-                fire_mega_drone(self.drones, drone, center, self.target_keys, blocked_key)
+                focus_keys = self.focus_keys if self.final_boss is not None else ()
+                fire_mega_drone(self.drones, drone, center, self.target_keys, blocked_key, focus_keys)
                 drone.next_shot_time = now + MEGA_ATTACK_INTERVAL_MS
             if drone.pos.distance_to(center) <= drone.radius + PLAYER_COLLISION_RADIUS:
                 self.drones.remove(drone)

@@ -1,32 +1,21 @@
-Ok rookie... lesson 5 starts now.
+Congratulations on your promotion Private. But don't let it go to your head.
 
-Your training pod will be at the center of the screen.
-Enemy drones will appear and move toward your pod.
+You'll notice a new weapon upgrade "Mega Shot" at the top of your screen.
 
-This mission adds G and H.
-Main fingers: Left index, right index.
+It is a powerful weapon, but does have a brief cool down after you use it.
+The more charged it is when you hold spare bar and press a fire key, the more damage it will do.
 
-Drones can use the keys from this lesson and the keys you have already learned.
-Press the matching key to fire at the drone.
+Hitting greater drones like reds and oranges with a charge of at least 3 will destroy them completely, and they won't even spawn lesser drones on destruction.
 
-Some drones take more than one shot to destroy.
+You'll use your left pointer and right pointer to press the 'G' and 'H' key.
 
-Keep your hands anchored, press with the correct finger, and return to ready position after every shot.
+Take care Private. There is and end of mission elite drone, and if you're not careful it will wipe the floor with you.
 
-Final boss training begins in this mission.
+The hexa-drone has a light blue shield with three shield charges you will need to drain.
+Normal shots do nothing to the hexa-drone, not to it, or it's shields. Your pod won't even let you waste the energy trying.
 
-After the drone spawn target is reached and all mini bosses are destroyed, a rotating hexagon boss will appear.
+Only a fully charged "Mega Shot" will be able to take down its shields, and will also be required to destroy it.
 
-The hexagon has a light blue shield with three shield levels. Normal shots will not break the shield.
+Watch out though, until you do destroy it, it will generate an army of lesser drones to try and take you out.
 
-Starting now, ␣ also controls your new mega weapon. Hold ␣ while the mega meter has charge, then press a target key to fire a mega shot at that target.
-
-The mega meter fills in five blocks. More blocks mean more damage. After a mega shot fires, the weapon waits briefly before it begins charging again.
-
-A shield hit only counts if the mega shot has at least three blocks of charge. Each valid shield hit weakens the shield by one level. When the shield reaches zero, it stays down.
-
-The boss body can only be destroyed while the shield is down, and it requires a full five-block mega shot.
-
-The final boss fires a small yellow drone after it moves into orbit. Destroy it before it reaches your pod.
-
-Here they come!
+Welcome to the big leagues Private. Stay calm and stay focused.

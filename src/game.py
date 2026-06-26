@@ -4,6 +4,7 @@ import math
 from pathlib import Path
 import random
 import re
+import sys
 
 import pygame
 
@@ -125,8 +126,18 @@ UPGRADE_CATALOG = (
 )
 RANK_ORDER = ("Rookie", "Private", "Lieutenant", "Captain", "Major")
 
-BASE_DIR = Path(__file__).resolve().parent
-PLAYERS_PATH = BASE_DIR.parent / "players.json"
+def running_as_frozen_app():
+    return getattr(sys, "frozen", False) or "__compiled__" in globals()
+
+
+def app_base_dir():
+    if running_as_frozen_app():
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+BASE_DIR = app_base_dir()
+PLAYERS_PATH = BASE_DIR / "players.json" if running_as_frozen_app() else BASE_DIR.parent / "players.json"
 is_fullscreen = True
 ui_image_cache = {}
 
@@ -161,6 +172,14 @@ def draw_scrollbar(surface, track_rect, total_items, visible_items, first_visibl
     thumb_y = track_rect.y + int(travel * first_visible / max_first_visible)
     thumb_rect = pygame.Rect(track_rect.x + 2, thumb_y, track_rect.width - 4, thumb_height)
     pygame.draw.rect(surface, ACCENT, thumb_rect, border_radius=4)
+
+
+def wheel_menu_step(event):
+    if event.y > 0:
+        return -1
+    if event.y < 0:
+        return 1
+    return 0
 
 
 def load_battle_image(path, size):
@@ -797,7 +816,7 @@ def player_select_loop(screen, clock):
                     selected = (selected + 1) % len(players)
                     delete_confirm = False
             if event.type == pygame.MOUSEWHEEL and players:
-                selected = (selected - event.y) % len(players)
+                selected = (selected + wheel_menu_step(event)) % len(players)
                 delete_confirm = False
 
         screen = pygame.display.get_surface()
@@ -1303,7 +1322,7 @@ def menu_loop(screen, clock, players, player):
                 direction = -1 if event.button == 4 else 1
                 selected = (selected + direction) % len(LESSONS)
             if event.type == pygame.MOUSEWHEEL:
-                selected = (selected - event.y) % len(LESSONS)
+                selected = (selected + wheel_menu_step(event)) % len(LESSONS)
 
         screen = pygame.display.get_surface()
         width, height = screen.get_size()
