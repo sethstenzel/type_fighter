@@ -199,5 +199,22 @@
         }
       ]
     }
+  },
+  {
+    "name": "test",
+    "completed_lessons": [
+      1,
+      2
+    ],
+    "lives": 9,
+    "shield_charges": 0,
+    "lifetime_score": 9500,
+    "achievements": [],
+    "credits": 210,
+    "pod": {
+      "color": "blue",
+      "type": "standard",
+      "upgrades": []
+    }
   }
 ]

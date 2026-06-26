@@ -45,7 +45,8 @@ UPGRADE_CATALOG = (
         "name": "Extra Life",
         "cost": 50,
         "repeatable": True,
-        "requirement": "Any rank",
+        "requirement": "Unlock mission 2",
+        "min_unlocked": 2,
         "icon": "extra_life.png",
     },
     {
@@ -221,16 +222,18 @@ def load_mock_battle_assets(battle):
     if battle["loaded"]:
         return
     gfx_dir = BASE_DIR / "gfx"
-    battle["pod_image"] = load_battle_image(gfx_dir / "pod.png", (130, 130))
-    battle["turret_image"] = load_battle_image(gfx_dir / "turret.png", (72, 72))
-    battle["defense_drone_image"] = load_battle_image(gfx_dir / "defense_drone_image.png", (28, 28))
-    battle["shot_image"] = load_battle_image(gfx_dir / "shot.png", (18, 18))
+    pod_dir = gfx_dir / "pod"
+    drone_dir = gfx_dir / "drones"
+    battle["pod_image"] = load_battle_image(pod_dir / "pod.png", (130, 130))
+    battle["turret_image"] = load_battle_image(pod_dir / "turret.png", (72, 72))
+    battle["defense_drone_image"] = load_battle_image(drone_dir / "defense_drone_image.png", (28, 28))
+    battle["shot_image"] = load_battle_image(pod_dir / "shot.png", (18, 18))
     battle["drone_images"] = [
         image
         for image in (
-            load_battle_image(gfx_dir / "yellow_drone.png", (44, 44)),
-            load_battle_image(gfx_dir / "orange_drone.png", (50, 50)),
-            load_battle_image(gfx_dir / "red_drone.png", (54, 54)),
+            load_battle_image(drone_dir / "yellow_drone.png", (44, 44)),
+            load_battle_image(drone_dir / "orange_drone.png", (50, 50)),
+            load_battle_image(drone_dir / "red_drone.png", (54, 54)),
         )
         if image is not None
     ]
@@ -916,6 +919,36 @@ def draw_buy_button(screen, rect, font, hovered=False):
     screen.blit(label, label.get_rect(center=rect.center))
 
 
+def wrap_plain_text(text, font, max_width):
+    lines = []
+    for paragraph in str(text).splitlines():
+        words = paragraph.split()
+        if not words:
+            lines.append("")
+            continue
+        line = words[0]
+        for word in words[1:]:
+            candidate = f"{line} {word}"
+            if font.size(candidate)[0] <= max_width:
+                line = candidate
+            else:
+                lines.append(line)
+                line = word
+        lines.append(line)
+    return lines
+
+
+def draw_centered_wrapped_text(surface, text, font, color, rect, line_spacing=6):
+    line_height = font.get_linesize() + line_spacing
+    lines = wrap_plain_text(text, font, rect.width)
+    total_height = len(lines) * line_height - line_spacing if lines else 0
+    y = rect.y + max(0, (rect.height - total_height) / 2)
+    for line in lines:
+        rendered = font.render(line, True, color)
+        surface.blit(rendered, rendered.get_rect(center=(rect.centerx, y + font.get_height() / 2)))
+        y += line_height
+
+
 def load_ui_image(path):
     cache_key = str(path)
     if cache_key in ui_image_cache:
@@ -926,6 +959,129 @@ def load_ui_image(path):
         image = None
     ui_image_cache[cache_key] = image
     return image
+
+
+def load_json_dict(path):
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def resolve_reward_image_path(lesson_dir, image_name):
+    if not image_name:
+        return None
+    raw_name = str(image_name).strip()
+    if not raw_name:
+        return None
+    raw_path = Path(raw_name)
+    if raw_path.is_absolute() and raw_path.exists():
+        return raw_path
+    names = [raw_path]
+    if raw_path.suffix == "":
+        names.append(Path(f"{raw_name}.png"))
+    for name in names:
+        for base in (lesson_dir, BASE_DIR, BASE_DIR / "gfx"):
+            candidate = base / name
+            if candidate.exists():
+                return candidate
+    return None
+
+
+def collect_new_achievement_modals(player, lesson_number):
+    return []
+
+
+def collect_lesson_unlock_modals(lesson_number):
+    lesson_dir = BASE_DIR / "lessons" / f"lesson_{lesson_number}"
+    unlocks = load_json_dict(lesson_dir / f"unlocks_l{lesson_number}.json")
+    queued = []
+    for unlock_key in sorted(unlocks):
+        unlock = unlocks.get(unlock_key)
+        if not isinstance(unlock, dict):
+            continue
+        title = str(unlock.get(f"{unlock_key}_title", unlock.get("title", ""))).strip()
+        text = str(unlock.get(f"{unlock_key}_text", unlock.get("text", ""))).strip()
+        image_name = unlock.get(f"{unlock_key}_img", unlock.get("img", ""))
+        if title or text:
+            queued.append(
+                {
+                    "title": title or "Unlocked",
+                    "text": text,
+                    "image_path": resolve_reward_image_path(lesson_dir, image_name),
+                }
+            )
+    return queued
+
+
+def collect_mission_reward_modals(player, lesson_number, include_unlocks=True):
+    queue = []
+    queue.extend(collect_new_achievement_modals(player, lesson_number))
+    if include_unlocks:
+        queue.extend(collect_lesson_unlock_modals(lesson_number))
+    return queue
+
+
+def reward_modal_loop(screen, clock, reward, background):
+    title_font = pygame.font.SysFont("arial", 40, bold=True)
+    body_font = pygame.font.SysFont("arial", 22)
+    button_font = pygame.font.SysFont("arial", 24, bold=True)
+    ok_rect = pygame.Rect(0, 0, 0, 0)
+    image = load_ui_image(reward.get("image_path")) if reward.get("image_path") else None
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return "quit"
+            if event.type == pygame.KEYDOWN:
+                if event.key in (pygame.K_ESCAPE, pygame.K_RETURN, pygame.K_SPACE):
+                    return None
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if ok_rect.collidepoint(event.pos):
+                    return None
+
+        screen = pygame.display.get_surface()
+        width, height = screen.get_size()
+        if background.get_size() == screen.get_size():
+            screen.blit(background, (0, 0))
+        else:
+            screen.fill(BG_COLOR)
+        draw_modal_backdrop(screen)
+        modal_rect = pygame.Rect(0, 0, min(620, width - 80), min(560, height - 40))
+        modal_rect.center = (width / 2, height / 2)
+        pygame.draw.rect(screen, (10, 18, 34), modal_rect, border_radius=8)
+        pygame.draw.rect(screen, ACCENT, modal_rect, 2, border_radius=8)
+
+        title_surface = title_font.render(str(reward.get("title", "Unlocked")), True, TEXT_COLOR)
+        screen.blit(title_surface, title_surface.get_rect(center=(modal_rect.centerx, modal_rect.y + 58)))
+
+        image_size = min(200, max(96, modal_rect.height - 330), modal_rect.width - 120)
+        image_rect = pygame.Rect(0, 0, image_size, image_size)
+        image_rect.center = (modal_rect.centerx, modal_rect.y + 190)
+        if image is not None:
+            scaled = pygame.transform.smoothscale(image, (image_rect.width, image_rect.height))
+            screen.blit(scaled, image_rect)
+        else:
+            pygame.draw.rect(screen, (20, 32, 58), image_rect, border_radius=8)
+            pygame.draw.rect(screen, (65, 82, 120), image_rect, 2, border_radius=8)
+
+        text_rect = pygame.Rect(modal_rect.x + 52, image_rect.bottom + 18, modal_rect.width - 104, 112)
+        draw_centered_wrapped_text(screen, reward.get("text", ""), body_font, MUTED_TEXT, text_rect)
+
+        ok_rect = pygame.Rect(0, modal_rect.bottom - 74, 150, 44)
+        ok_rect.centerx = modal_rect.centerx
+        draw_modal_button(screen, ok_rect, "Okay", button_font, True, True)
+        pygame.display.flip()
+        clock.tick(60)
+
+
+def show_reward_modal_queue(screen, clock, queue):
+    while queue:
+        background = screen.copy()
+        result = reward_modal_loop(screen, clock, queue.pop(0), background)
+        if result == "quit":
+            return "quit"
+    return None
 
 
 def draw_square_image_button(screen, rect, image=None):
@@ -1008,7 +1164,7 @@ def draw_upgrades_modal(screen, title_font, body_font, small_font, player):
         icon_name = upgrade.get("icon", "")
         if upgrade_is_progress_locked(player, upgrade):
             icon_name = disabled_icon_name(icon_name)
-        icon = load_ui_image(BASE_DIR / "gfx" / icon_name)
+        icon = load_ui_image(BASE_DIR / "gfx" / "upgrades" / icon_name)
         if icon is not None:
             scaled_icon = pygame.transform.smoothscale(icon, (art_rect.width, art_rect.height))
             screen.blit(scaled_icon, art_rect)
@@ -1270,13 +1426,17 @@ def menu_loop(screen, clock, players, player):
     stars = create_star_field()
     mission_rects = []
     upgrades_button_rect = None
-    upgrades_image = load_ui_image(BASE_DIR / "gfx" / "upgrades.png")
+    upgrades_image = load_ui_image(BASE_DIR / "gfx" / "upgrades" / "upgrades.png")
     mock_battle = create_mock_battle()
     last_wheel_scroll_time = 0
+    pending_reward_modals = []
 
     while True:
         update_star_field(stars, clock.get_time() / 1000)
         unlocked_count = unlocked_lesson_count(player)
+        upgrades_available = 2 in set(player.get("completed_lessons", []))
+        if not upgrades_available:
+            upgrades_button_rect = None
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -1295,12 +1455,17 @@ def menu_loop(screen, clock, players, player):
                 if event.key in (pygame.K_RETURN, pygame.K_SPACE):
                     if selected < unlocked_count:
                         completed_index = selected
+                        lesson_number = LESSONS[completed_index]["number"]
+                        was_completed = lesson_number in set(player.get("completed_lessons", []))
                         result = run_lesson(screen, clock, LESSONS[completed_index], player)
                         save_players(players)
                         if result == "quit":
                             return "quit"
                         if result == "won":
-                            mark_lesson_complete(player, LESSONS[completed_index]["number"])
+                            mark_lesson_complete(player, lesson_number)
+                            pending_reward_modals.extend(
+                                collect_mission_reward_modals(player, lesson_number, not was_completed)
+                            )
                             save_players(players)
                             selected = min(completed_index + 1, unlocked_lesson_count(player) - 1)
                         pygame.event.clear((pygame.KEYDOWN, pygame.KEYUP))
@@ -1315,12 +1480,17 @@ def menu_loop(screen, clock, players, player):
                     if rect.collidepoint(event.pos):
                         selected = index
                         if index < unlocked_count:
+                            lesson_number = LESSONS[index]["number"]
+                            was_completed = lesson_number in set(player.get("completed_lessons", []))
                             result = run_lesson(screen, clock, LESSONS[index], player)
                             save_players(players)
                             if result == "quit":
                                 return "quit"
                             if result == "won":
-                                mark_lesson_complete(player, LESSONS[index]["number"])
+                                mark_lesson_complete(player, lesson_number)
+                                pending_reward_modals.extend(
+                                    collect_mission_reward_modals(player, lesson_number, not was_completed)
+                                )
                                 save_players(players)
                                 selected = min(index + 1, unlocked_lesson_count(player) - 1)
                             pygame.event.clear((pygame.KEYDOWN, pygame.KEYUP, pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP))
@@ -1338,8 +1508,11 @@ def menu_loop(screen, clock, players, player):
         screen.fill(BG_COLOR)
         draw_star_field(screen, stars)
         update_and_draw_mock_battle(screen, mock_battle, clock, content_left, content_left + content_width)
-        upgrades_button_rect = pygame.Rect(content_left + content_width - 80, 128, 80, 80)
-        draw_square_image_button(screen, upgrades_button_rect, upgrades_image)
+        if upgrades_available:
+            upgrades_button_rect = pygame.Rect(content_left + content_width - 80, 128, 80, 80)
+            draw_square_image_button(screen, upgrades_button_rect, upgrades_image)
+        else:
+            upgrades_button_rect = None
         draw_text(screen, "TYPE FIGHTER", title_font, TEXT_COLOR, (text_left, 90))
         draw_text(
             screen,
@@ -1392,6 +1565,12 @@ def menu_loop(screen, clock, players, player):
         draw_scrollbar(screen, scrollbar_rect, len(LESSONS), visible_rows, first_visible)
 
         draw_text(screen, "Esc: Players  |  F11: Max size  |  Q: Quit", small_font, MUTED_TEXT, (text_left + 4, height - 58))
+        if pending_reward_modals:
+            result = show_reward_modal_queue(screen, clock, pending_reward_modals)
+            if result == "quit":
+                return "quit"
+            pygame.event.clear((pygame.KEYDOWN, pygame.KEYUP, pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP))
+            continue
         pygame.display.flip()
         clock.tick(60)
 
