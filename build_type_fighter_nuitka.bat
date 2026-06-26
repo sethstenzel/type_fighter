@@ -54,6 +54,7 @@ if exist "%RELEASE_DIR%" rmdir /s /q "%RELEASE_DIR%"
   --include-data-dir="%~dp0src\gfx=gfx" ^
   --include-data-dir="%~dp0src\sfx=sfx" ^
   --include-data-dir="%~dp0src\lessons=lessons" ^
+  --include-data-files="%~dp0src\settings.cfg=settings.cfg" ^
   --noinclude-data-files="*.psd" ^
   --noinclude-data-files="*.PSD" ^
   --noinclude-data-files="**/*.psd" ^
