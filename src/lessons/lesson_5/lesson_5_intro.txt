@@ -1,20 +1,38 @@
 Welcome back, pilot ... and congratulations on your promotion.
 Things are going to get a bit harder from here.
 
-You may have noticed you've been getting credits for your work after each mission.
+Upper Brass has seen your progress and signed off on upgrading your pod.
+That will be your pod moving forward and no other pilot will use it.
 
+You should notice a weapon upgrade on your next Mission.
+You also may have noticed you've been getting credits for your work after each mission.
 You now have access to the upgrades shop, you can find a button for it at the top right of the missions lists.
-They can be a life safer as these missions are about to get a lot tougher.
+They can be a life saver as these missions are about to get a lot tougher.
 Some upgrades require you've reached a certain level, others a certain rank.
 
 Rank has it's privileges though Private.
-You will now have a new ability called "Mega Shot" It will charge up, and when holding the Spacebar and then pressing a fire key will fire a large energy shot at a drone.
-This will be vitally important for defeating new a new boss drone which will appear at the end of the lesson.
-It is also useful for killing greater drones in one shot so they don't split into lesser drones.
 
-New weapons, new enemies, new upgrades. You've earned it all. 
+Now onto your next mission which adds mission adds 'G' and 'H' which are also on the home row.
 
-In this next mission, your new training keys are 'G' and 'H'.
-These keys use your Left index finger, and right index finger.
+You'll use your left pointer and right pointer fingers to press the 'G' and 'H' keys.
+This wil be your first stretch key, meaning you will have to stretch your finger over, and press either 'G' or 'H'.
 
-To launch the training simulation, use either thumb to press the Spacebar.
+To press the 'G' key, stretch your left point off of the 'F' key and onto the 'G' key and press it.
+Then as quickly as you can move it back to its launch position over the 'F' key once again.
+
+Likewise, to press the 'H' key, stretch your right pointer finger off of the 'J' key and onto the 'H' key and press it.
+Then as quickly as you can move it back to its launch position over the 'J' key.
+
+All new keys you learn will be stretch keys, but these first two should be some of the easiest to learn.
+
+It's vitally important that after each stretch press you return your fingers to their launch position.
+This sets them up to more quickly move to their next keypress.
+
+One last thing, going forward, you will face a formidable elite enemy drone at the end of the lesson.
+The hexa-drone has a light blue shield with three shield charges you will need to drain. Normal shots will not break the shield and your pod won't even let you waste ammo trying.
+
+You've been given new weaponry to deal with these elite end mission drones however. Drain their shields, and take them down.
+Oh, and watch out, they generate lesser drones to distract you. Stay calm and stay focused.
+
+Remember, the elite drone can only be destroyed while its shield is down, and will require a powerful hit to take it out.
+
