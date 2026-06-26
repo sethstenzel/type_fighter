@@ -1,10 +1,12 @@
 import importlib
 import json
 import math
+import os
 from pathlib import Path
 import random
 import re
 import sys
+from urllib import error, parse, request
 
 import pygame
 
@@ -140,9 +142,18 @@ def app_base_dir():
 
 BASE_DIR = app_base_dir()
 PLAYERS_PATH = BASE_DIR / "players.json" if running_as_frozen_app() else BASE_DIR.parent / "players.json"
+APP_CONFIG_DIR = BASE_DIR if running_as_frozen_app() else BASE_DIR.parent
+SETTINGS_PATH = BASE_DIR / "settings.cfg"
+PLAYER_EMAIL_PATH = APP_CONFIG_DIR / "type_fighter_email.json"
 is_fullscreen = True
 ui_image_cache = {}
 ui_sound_cache = {}
+player_storage = {
+    "remote_enabled": False,
+    "server_url": "",
+    "email": "",
+    "warning": "",
+}
 
 
 LESSONS = [
@@ -421,12 +432,7 @@ def player_shield_max_charges(player):
     return max_charges
 
 
-def load_players():
-    try:
-        data = json.loads(PLAYERS_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return []
-
+def normalize_players(data):
     if not isinstance(data, list):
         return []
 
@@ -470,8 +476,119 @@ def load_players():
     return players
 
 
-def save_players(players):
+def load_local_players():
+    try:
+        data = json.loads(PLAYERS_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    return normalize_players(data)
+
+
+def save_local_players(players):
     PLAYERS_PATH.write_text(json.dumps(players, indent=2), encoding="utf-8")
+
+
+def read_settings_file(path):
+    values = {}
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return values
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        values[key.strip()] = value.strip().strip('"').strip("'")
+    return values
+
+
+def configured_server_url():
+    settings = read_settings_file(SETTINGS_PATH)
+    server = os.environ.get("TYPE_FIGHTER_SERVER") or settings.get("TYPE_FIGHTER_SERVER", "")
+    return server.rstrip("/")
+
+
+def configured_api_key():
+    settings = read_settings_file(SETTINGS_PATH)
+    return os.environ.get("TYPE_FIGHTER_API_KEY") or settings.get("TYPE_FIGHTER_API_KEY", "")
+
+
+def valid_email(email):
+    email = str(email).strip()
+    return bool(re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email))
+
+
+def load_saved_email():
+    try:
+        data = json.loads(PLAYER_EMAIL_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ""
+    email = data.get("email", "") if isinstance(data, dict) else ""
+    return email.strip().lower() if valid_email(email) else ""
+
+
+def save_player_email(email):
+    PLAYER_EMAIL_PATH.write_text(json.dumps({"email": email.strip().lower()}, indent=2), encoding="utf-8")
+
+
+def remote_request(method, path, payload=None, timeout=2):
+    server_url = player_storage.get("server_url", "")
+    if not server_url:
+        raise OSError("Type Fighter server is not configured")
+    body = None
+    headers = {}
+    api_key = player_storage.get("api_key", "")
+    if api_key:
+        headers["X-API-Key"] = api_key
+    if payload is not None:
+        body = json.dumps(payload).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    req = request.Request(f"{server_url}{path}", data=body, headers=headers, method=method)
+    with request.urlopen(req, timeout=timeout) as response:
+        raw = response.read()
+    if not raw:
+        return None
+    return json.loads(raw.decode("utf-8"))
+
+
+def health_check_remote_storage():
+    remote_request("GET", "/health", timeout=2)
+
+
+def remote_players_path():
+    email = player_storage.get("email", "")
+    return f"/players/{parse.quote(email, safe='')}"
+
+
+def load_remote_players():
+    data = remote_request("GET", remote_players_path(), timeout=4)
+    return normalize_players(data.get("players", []) if isinstance(data, dict) else [])
+
+
+def save_remote_players(players):
+    remote_request("PUT", remote_players_path(), {"players": players}, timeout=4)
+
+
+def load_players():
+    if player_storage.get("remote_enabled"):
+        try:
+            return load_remote_players()
+        except (OSError, error.URLError, TimeoutError, json.JSONDecodeError):
+            player_storage["remote_enabled"] = False
+            player_storage["warning"] = "Could not reach Type Fighter Server. Using local player data."
+    return load_local_players()
+
+
+def save_players(players):
+    if player_storage.get("remote_enabled"):
+        try:
+            save_remote_players(players)
+            return
+        except (OSError, error.URLError, TimeoutError, json.JSONDecodeError):
+            player_storage["remote_enabled"] = False
+            player_storage["warning"] = "Could not save to Type Fighter Server. Using local player data."
+    save_local_players(players)
 
 
 def create_player_record(
@@ -961,6 +1078,120 @@ def draw_modal_button(screen, rect, text, font, enabled=True, selected=False):
     pygame.draw.rect(screen, border, rect, 2, border_radius=8)
     label = font.render(text, True, color)
     screen.blit(label, label.get_rect(center=rect.center))
+
+
+def message_modal(screen, clock, title, message):
+    title_font = pygame.font.SysFont("arial", 38, bold=True)
+    body_font = pygame.font.SysFont("arial", 22)
+    ok_rect = pygame.Rect(0, 0, 0, 0)
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return "quit"
+            if event.type == pygame.VIDEORESIZE:
+                screen = enforce_min_window_size(screen)
+            if event.type == pygame.KEYDOWN:
+                if event.key in (pygame.K_ESCAPE, pygame.K_RETURN, pygame.K_SPACE):
+                    return None
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if ok_rect.collidepoint(event.pos):
+                    return None
+
+        screen = pygame.display.get_surface()
+        width, height = screen.get_size()
+        screen.fill(BG_COLOR)
+        draw_modal_backdrop(screen)
+        rect = pygame.Rect(0, 0, min(660, width - 80), 290)
+        rect.center = (width / 2, height / 2)
+        pygame.draw.rect(screen, (10, 18, 34), rect, border_radius=8)
+        pygame.draw.rect(screen, LOCKED_SELECTED, rect, 2, border_radius=8)
+        draw_text(screen, title, title_font, TEXT_COLOR, (rect.x + 28, rect.y + 28))
+        text_rect = pygame.Rect(rect.x + 34, rect.y + 96, rect.width - 68, 92)
+        draw_centered_wrapped_text(screen, message, body_font, MUTED_TEXT, text_rect)
+        ok_rect = pygame.Rect(rect.right - 174, rect.bottom - 62, 142, 42)
+        draw_modal_button(screen, ok_rect, "OK", body_font, True, True)
+        pygame.display.flip()
+        clock.tick(60)
+
+
+def email_setup_screen(screen, clock):
+    title_font = pygame.font.SysFont("arial", 46, bold=True)
+    body_font = pygame.font.SysFont("arial", 24)
+    small_font = pygame.font.SysFont("arial", 18)
+    email = ""
+    message = ""
+    stars = create_star_field()
+
+    while True:
+        update_star_field(stars, clock.get_time() / 1000)
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return "quit"
+            if event.type == pygame.VIDEORESIZE:
+                screen = enforce_min_window_size(screen)
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_F11:
+                    screen = toggle_fullscreen()
+                elif event.key == pygame.K_ESCAPE:
+                    return None
+                elif event.key == pygame.K_RETURN:
+                    cleaned = email.strip().lower()
+                    if valid_email(cleaned):
+                        save_player_email(cleaned)
+                        return cleaned
+                    message = "Enter a valid email address."
+                elif event.key == pygame.K_BACKSPACE:
+                    email = email[:-1]
+                elif event.unicode and event.unicode.isprintable() and len(email) < 80:
+                    email += event.unicode
+
+        screen = pygame.display.get_surface()
+        width, height = screen.get_size()
+        content_width = min(760, max(520, width - 160))
+        left = (width - content_width) / 2
+        screen.fill(BG_COLOR)
+        draw_star_field(screen, stars)
+
+        title = title_font.render("SAVE EMAIL", True, TEXT_COLOR)
+        screen.blit(title, title.get_rect(center=(width / 2, height / 2 - 150)))
+        draw_text(screen, "Enter an email address for cloud saves.", body_font, MUTED_TEXT, (left, height / 2 - 82))
+        input_rect = pygame.Rect(left, height / 2 - 30, content_width, 62)
+        pygame.draw.rect(screen, (13, 22, 42), input_rect, border_radius=8)
+        pygame.draw.rect(screen, ACCENT, input_rect, 2, border_radius=8)
+        draw_text(screen, email or "email@example.com", body_font, TEXT_COLOR if email else MUTED_TEXT, (input_rect.x + 18, input_rect.y + 17))
+        if message:
+            draw_text(screen, message, small_font, LOCKED_SELECTED, (left, height / 2 + 52))
+        draw_text(screen, "Enter: Save  |  Esc: Use local saves  |  F11: Max size", small_font, MUTED_TEXT, (left, height - 58))
+        pygame.display.flip()
+        clock.tick(60)
+
+
+def configure_player_storage(screen, clock):
+    server_url = configured_server_url()
+    if not server_url:
+        return None
+    player_storage["server_url"] = server_url
+    player_storage["api_key"] = configured_api_key()
+    email = load_saved_email()
+    if not email:
+        email = email_setup_screen(screen, clock)
+        if email == "quit":
+            return "quit"
+        if not email:
+            return None
+    player_storage["email"] = email
+    try:
+        health_check_remote_storage()
+    except (OSError, error.URLError, TimeoutError, json.JSONDecodeError):
+        player_storage["remote_enabled"] = False
+        return message_modal(
+            screen,
+            clock,
+            "SERVER UNAVAILABLE",
+            "Could not contact Type Fighter Server. The game will use local player data.",
+        )
+    player_storage["remote_enabled"] = True
+    return None
 
 
 def draw_buy_button(screen, rect, font, hovered=False):
@@ -1777,7 +2008,19 @@ def set_window_metadata():
             pass
 
 
+def set_windows_app_id():
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("TypeFighter.TypeFighter.Alpha")
+    except (AttributeError, OSError):
+        pass
+
+
 def main():
+    set_windows_app_id()
     pygame.init()
     try:
         pygame.mixer.init()
@@ -1791,6 +2034,9 @@ def main():
     clock = pygame.time.Clock()
 
     try:
+        storage_result = configure_player_storage(screen, clock)
+        if storage_result == "quit":
+            return
         while True:
             selection = player_select_loop(screen, clock)
             if selection == "quit":

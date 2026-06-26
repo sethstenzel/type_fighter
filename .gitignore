@@ -154,6 +154,7 @@ activemq-data/
 # Environments
 .env
 .envrc
+type_fighter_email.json
 .venv
 env/
 venv/
