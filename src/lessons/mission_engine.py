@@ -6,12 +6,18 @@ from pathlib import Path
 
 import pygame
 
+from display_helpers import (
+    SCREEN_SIZE as BASE_SCREEN_SIZE,
+    enforce_16_9_window,
+    is_letterboxed_fullscreen,
+    set_fullscreen_16_9,
+    set_windowed_16_9,
+)
 from lessons.key_render import display_key, render_inline_center, render_inline_text, render_key_label
 from lessons.lesson_config import lesson_new_keys
+from player_limits import MAX_PLAYER_LIVES
 
 
-BASE_SCREEN_SIZE = (1024, 768)
-MIN_SCREEN_SIZE = (800, 600)
 BG_COLOR = (5, 9, 20)
 TEXT_COLOR = (232, 240, 255)
 MUTED_TEXT = (140, 154, 184)
@@ -32,7 +38,7 @@ POD_IMAGE_SIZE = 204
 PLAYER_COLLISION_RADIUS = 36
 TURRET_IMAGE_SIZE = 108
 DRONE_PIXELS_PER_ROTATION = 60
-TURRET_TURN_SPEED = 13
+TURRET_TURN_SPEED = 25
 TURRET_FIRE_ANGLE_THRESHOLD = 0.08
 TURRET_FIRE_DELAY_MS = 90
 SHOT_IMAGE_SIZE = 22
@@ -95,7 +101,7 @@ NEW_KEY_ONLY_DRONES_PER_MISSION = 15
 FINAL_BOSS_NEW_KEY_SPAWN_WEIGHT = 0.7
 PLAYER_SHIELD_MAX_CHARGES = 3
 PLAYER_SHIELD_START_LESSON = 7
-PLAYER_SHIELD_RECHARGE_MS = 20000
+PLAYER_SHIELD_RECHARGE_MS = 20000 # TODO: Pretty sure this is is old code. Check
 PLAYER_ACTIVE_SHIELD_COLOR = (116, 211, 255)
 PLAYER_ACTIVE_SHIELD_DURATION_MS = 9000
 PLAYER_ACTIVE_SHIELD_FADE_START_MS = 6000
@@ -274,19 +280,13 @@ def stop_audio():
 
 def toggle_fullscreen():
     screen = pygame.display.get_surface()
-    if screen.get_flags() & pygame.FULLSCREEN:
-        return pygame.display.set_mode(BASE_SCREEN_SIZE, pygame.RESIZABLE)
-    return pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+    if is_letterboxed_fullscreen() or screen.get_flags() & pygame.FULLSCREEN:
+        return set_windowed_16_9(BASE_SCREEN_SIZE)
+    return set_fullscreen_16_9()
 
 
 def enforce_min_window_size(screen):
-    if screen.get_flags() & pygame.FULLSCREEN:
-        return screen
-    width, height = screen.get_size()
-    min_width, min_height = MIN_SCREEN_SIZE
-    if width >= min_width and height >= min_height:
-        return screen
-    return pygame.display.set_mode((max(width, min_width), max(height, min_height)), pygame.RESIZABLE)
+    return enforce_16_9_window(screen)
 
 
 def load_sound(path, volume=1.0):
@@ -325,6 +325,15 @@ def load_image(path):
         return pygame.image.load(str(path)).convert_alpha()
     except (OSError, pygame.error):
         return None
+
+
+def load_pod_variant_image(pod_dir, base_name, color_name=None, fallback_name=None):
+    fallback_name = fallback_name or f"{base_name}.png"
+    if color_name:
+        image = load_image(pod_dir / f"{base_name}_{color_name}.png")
+        if image is not None:
+            return image
+    return load_image(pod_dir / fallback_name)
 
 
 def read_text(path):
@@ -510,6 +519,19 @@ def player_upgrade_ids(player):
         elif isinstance(upgrade, dict) and isinstance(upgrade.get("id"), str):
             ids.add(upgrade["id"])
     return ids
+
+
+def player_upgrade_color(player, upgrade_id):
+    if not isinstance(player, dict):
+        return None
+    pod = player.get("pod", {})
+    upgrades = pod.get("upgrades", []) if isinstance(pod, dict) else []
+    for upgrade in reversed(upgrades):
+        if isinstance(upgrade, dict) and upgrade.get("id") == upgrade_id:
+            color = upgrade.get("color")
+            if isinstance(color, str) and color.strip():
+                return color.strip().lower().replace(" ", "_")
+    return None
 
 
 def player_shield_max_charges(player):
@@ -1698,6 +1720,8 @@ class MissionEngine:
         self.pod_gfx_dir = self.gfx_dir / "pod"
         self.drone_gfx_dir = self.gfx_dir / "drones"
         self.lesson_number = int(lesson_dir_name.split("_")[-1])
+        self.player_splash_color = player_upgrade_color(player, "drone_splash_color")
+        self.shot_charge_color = player_upgrade_color(player, "ammo_charge_color")
         self.player_mega_shot_available = player_mega_shot_available(player, self.lesson_number)
         self.player_shields_available = player_shield_available(player, self.lesson_number)
         self.max_shield_charges = player_shield_max_charges(player)
@@ -1719,16 +1743,21 @@ class MissionEngine:
         self.victory_sound = load_sound(self.sfx_dir / "victory.wav", 0.9)
         self.bg_music = load_sound(self.sfx_dir / "bg_music.wav", BG_MUSIC_VOLUME)
         self.bg_music_channel = play_looping_sound(self.bg_music, BG_MUSIC_FADE_IN_MS)
-        self.turret_image = load_image(self.pod_gfx_dir / "turret.png")
+        self.turret_image = load_pod_variant_image(self.pod_gfx_dir, "turret", self.player_splash_color)
         if self.turret_image is not None:
             self.turret_image = pygame.transform.smoothscale(self.turret_image, (TURRET_IMAGE_SIZE, TURRET_IMAGE_SIZE))
-        self.pod_image = load_image(self.pod_gfx_dir / "pod.png")
+        self.pod_image = load_pod_variant_image(self.pod_gfx_dir, "pod", self.player_splash_color)
         if self.pod_image is not None:
             self.pod_image = pygame.transform.smoothscale(self.pod_image, (POD_IMAGE_SIZE, POD_IMAGE_SIZE))
-        self.shot_image = load_image(self.pod_gfx_dir / "shot.png")
+        self.shot_image = load_pod_variant_image(self.pod_gfx_dir, "shot", self.shot_charge_color)
         if self.shot_image is not None:
             self.shot_image = pygame.transform.smoothscale(self.shot_image, (SHOT_IMAGE_SIZE, SHOT_IMAGE_SIZE))
-        self.defense_drone_image = load_image(self.drone_gfx_dir / "defense_drone_image.png")
+        self.defense_drone_image = load_pod_variant_image(
+            self.pod_gfx_dir,
+            "defense_drone",
+            self.player_splash_color,
+            "defense_drone_image.png",
+        )
         if self.defense_drone_image is not None:
             defense_drone_size = DEFENSE_DRONE_RADIUS * 2
             self.defense_drone_image = pygame.transform.smoothscale(
@@ -1777,7 +1806,7 @@ class MissionEngine:
         self.inaccurate_inputs = 0
         self.inaccurate_keys = []
         self.credits_awarded = False
-        self.lives = max(STARTING_LIVES, self._player_int("lives", STARTING_LIVES, 1))
+        self.lives = max(STARTING_LIVES, self._player_int("lives", STARTING_LIVES, 1, MAX_PLAYER_LIVES))
         self.shield_charges = self._player_int("shield_charges", 0, 0, self.max_shield_charges)
         self.active_shield_hits = 0
         self.active_shield_expires_at = 0
@@ -1868,7 +1897,7 @@ class MissionEngine:
     def _save_player_resources(self):
         if self.player is None:
             return
-        self.player["lives"] = max(1, self.lives)
+        self.player["lives"] = max(1, min(MAX_PLAYER_LIVES, self.lives))
         self.player["shield_charges"] = max(0, min(self.max_shield_charges, self.shield_charges))
 
     def _add_lifetime_score(self):
@@ -2473,7 +2502,7 @@ class MissionEngine:
                         if collected_power_up == "shield":
                             self.shield_charges = min(self.max_shield_charges, self.shield_charges + 1)
                         else:
-                            self.lives += 1
+                            self.lives = min(MAX_PLAYER_LIVES, self.lives + 1)
                         self._save_player_resources()
                         play_sound(self.health_sound)
                         self.power_up = None

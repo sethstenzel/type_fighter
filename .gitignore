@@ -154,7 +154,11 @@ activemq-data/
 # Environments
 .env
 .envrc
+type_fighter_session.json
+type_fighter_auth_prefs.cfg
 type_fighter_email.json
+type_fighter.log
+type_fighter.log.*
 .venv
 env/
 venv/
