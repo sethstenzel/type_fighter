@@ -1,25 +1,19 @@
-Welcome back, pilot ... lesson 7 is ready.
+Welcome back, pilot ... 
 
-Your new training keys are E and I.
+ I hear the higher ups have commisioned some work on your pod.
+ You'll be the first pilot using this new pod tech, and I hear it's a real life saver.
+I'm told it is some sort of shielding tech, deploys in an emergency to keep you alive in the heat of battle, some sort of battle shield.
+I'm a little jealous they didn't have this tech went I went through training.
 
-These keys use: Left middle, right middle.
+But enough about me, lets talk about your next mission.
 
-You are not starting over. Every key from the earlier lessons is still part of your control panel.
-Your job is to add these two new keys while keeping your hands anchored and your eyes forward.
+Your new training keys are 'E' and 'I'.
+You'll use your left and right index fingers to stretch up one key and press them.
 
-Before launch, place both hands on the home row.
-Find F and J by touch if you need to reset your position.
-Then prepare the fingers for E and I.
+These keys use the left pointer finger and right pointer finger respectively. 
 
-When a drone shows one of the new keys, press it with the correct finger.
-When a drone shows a key from an earlier lesson, use the finger you already trained.
-After every key press, return to your ready position.
-
-Do not chase the keyboard with your whole hand.
+Remember not to chase the keyboard with your hands, keep your fingers going back to your lauch position...
 Do not look down if you can help it.
 Small movements, steady hands, eyes forward.
 
-In this mission, drones may use all keys you have learned so far, with extra focus on E and I.
-Stay calm, read the drone, press the key, and get back to ready position.
-
-To launch the training simulation, use either thumb to press the ␣.
+To launch the training simulation, use either thumb to press the Spacebar key.

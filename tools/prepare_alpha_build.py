@@ -6,6 +6,7 @@ from pathlib import Path
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 VERSION_PATH = PROJECT_DIR / "build_version.json"
 PREPARED_RELEASE_PATH = PROJECT_DIR / "build" / "release_name.txt"
+VERSION_INFO_PATH = PROJECT_DIR / "src" / "version_info.json"
 
 
 def load_version_state():
@@ -34,11 +35,16 @@ def save_version_state(state):
         version_file.write("\n")
 
 
+def save_version_info(version):
+    VERSION_INFO_PATH.write_text(json.dumps({"version": version}, indent=2) + "\n", encoding="utf-8")
+
+
 def main():
     build_suffix = sys.argv[1] if len(sys.argv) > 1 else ""
     state = load_version_state()
     version = f"{state['major']}.{state['minor']}.{state['next_patch']}{state['suffix']}"
     release_name = f"type-fighter-v{version}{build_suffix}"
+    save_version_info(version)
 
     state["next_patch"] += 1
     save_version_state(state)
