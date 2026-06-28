@@ -55,13 +55,21 @@ def normalize_pod_upgrades(upgrades):
 
 
 def upgrade_ids(player):
+    if not isinstance(player, dict):
+        return set()
     pod = player.get("pod", {}) if isinstance(player, dict) else {}
     upgrades = pod.get("upgrades", []) if isinstance(pod, dict) else []
-    return {
+    ids = {
         upgrade.get("id")
         for upgrade in normalize_pod_upgrades(upgrades)
         if isinstance(upgrade, dict) and isinstance(upgrade.get("id"), str)
     }
+    ids.update(
+        upgrade_id
+        for upgrade_id in normalize_string_list(player.get("purchased_upgrade_ids", []))
+        if upgrade_id not in CONSUMABLE_UPGRADE_IDS
+    )
+    return ids
 
 
 def has_upgrade(player, upgrade_id):
@@ -196,11 +204,11 @@ def player_rank(player):
     unlocked = unlocked_lesson_count(player)
     if unlocked <= 4:
         return "Rookie"
-    if unlocked <= 10:
+    if unlocked <= 9:
         return "Private"
-    if unlocked <= 24:
+    if unlocked <= 19:
         return "Lieutenant"
-    if unlocked <= 30:
+    if unlocked <= 29:
         return "Captain"
     return "Major"
 
@@ -255,7 +263,7 @@ def upgrade_lock_reason(player, upgrade):
         max_charges = player_shield_max_charges(player)
         if int(player.get("shield_charges", 0) or 0) >= max_charges:
             return "Shield full"
-    return ""
+    return None
 
 
 def upgrade_is_progress_locked(player, upgrade):
@@ -381,6 +389,40 @@ def mark_lesson_complete(player, lesson_number):
     player["completed_lessons"] = sorted(completed)
 
 
+def mission_accuracy_percent(stats):
+    if not isinstance(stats, dict):
+        return 0
+    if "accuracy_percent" in stats:
+        try:
+            return int(stats.get("accuracy_percent", 0))
+        except (TypeError, ValueError):
+            return 0
+    try:
+        accurate_inputs = max(0, int(stats.get("accurate_inputs", 0) or 0))
+        inaccurate_inputs = max(0, int(stats.get("inaccurate_inputs", 0) or 0))
+    except (TypeError, ValueError):
+        return 0
+    total_inputs = accurate_inputs + inaccurate_inputs
+    return 100 if total_inputs == 0 else round(accurate_inputs * 100 / total_inputs)
+
+
+def mission_stats_are_perfect(stats, lesson_number):
+    if not isinstance(stats, dict):
+        return False
+    try:
+        hits_taken = int(stats.get("hits_taken", 0) or 0)
+        inaccurate_inputs = int(stats.get("inaccurate_inputs", 0) or 0)
+    except (TypeError, ValueError):
+        return False
+    return (
+        stats.get("lesson_number") == lesson_number
+        and bool(stats.get("won"))
+        and hits_taken == 0
+        and inaccurate_inputs == 0
+        and mission_accuracy_percent(stats) == 100
+    )
+
+
 def achievement_by_id(achievement_id):
     for achievement in ACHIEVEMENTS:
         if achievement.get("id") == achievement_id:
@@ -424,17 +466,7 @@ def purchased_upgrade_id_set(player):
 
 def record_latest_mission_achievement_progress(player, lesson_number):
     stats = player.get("last_mission_stats", {})
-    if not isinstance(stats, dict):
-        return
-    if stats.get("lesson_number") != lesson_number or not stats.get("won"):
-        return
-    if (
-        stats.get("no_damage_taken")
-        or stats.get("hits_taken", 0) == 0
-    ) and (
-        stats.get("accuracy_percent", 100) >= 100
-        or stats.get("inaccurate_inputs", 0) == 0
-    ):
+    if mission_stats_are_perfect(stats, lesson_number):
         perfect_lessons = set(normalize_lesson_number_list(player.get("perfect_lessons", [])))
         perfect_lessons.add(lesson_number)
         player["perfect_lessons"] = sorted(perfect_lessons)

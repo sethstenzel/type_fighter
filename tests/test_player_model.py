@@ -12,9 +12,14 @@ from player_model import (
     apply_upgrade_sale,
     achievement_requirements_met,
     create_player_record,
+    mission_stats_are_perfect,
     normalize_pod_upgrades,
     player_credits,
+    player_rank,
     player_shield_max_charges,
+    record_latest_mission_achievement_progress,
+    has_upgrade,
+    upgrade_lock_reason,
     upgrade_by_id,
 )
 
@@ -60,6 +65,77 @@ class PlayerModelTests(unittest.TestCase):
         player = create_player_record("Pilot", lives=99)
 
         self.assertIn("living_forever", achievement_requirements_met(player, total_lessons=36))
+
+    def test_rank_thresholds_use_updated_lesson_bands(self):
+        cases = [
+            ([], "Rookie"),
+            ([1, 2, 3, 4], "Private"),
+            (list(range(1, 10)), "Lieutenant"),
+            (list(range(1, 20)), "Captain"),
+            (list(range(1, 30)), "Major"),
+        ]
+
+        for completed_lessons, expected_rank in cases:
+            with self.subTest(expected_rank=expected_rank):
+                player = create_player_record("Pilot", completed_lessons=completed_lessons)
+                self.assertEqual(player_rank(player), expected_rank)
+
+    def test_available_second_defense_drone_has_no_lock_reason(self):
+        player = create_player_record(
+            "Pilot",
+            completed_lessons=list(range(1, 20)),
+            credits=5000,
+            purchased_upgrade_ids=["defense_drone"],
+        )
+
+        self.assertIsNone(upgrade_lock_reason(player, upgrade_by_id("second_defense_drone")))
+
+    def test_non_consumable_purchased_upgrade_ids_count_as_owned(self):
+        player = create_player_record("Pilot", purchased_upgrade_ids=["defense_drone"])
+
+        self.assertTrue(has_upgrade(player, "defense_drone"))
+
+    def test_perfect_lesson_requires_no_damage_and_100_percent_accuracy(self):
+        stats = {
+            "lesson_number": 23,
+            "won": True,
+            "hits_taken": 0,
+            "accurate_inputs": 8,
+            "inaccurate_inputs": 2,
+            "accuracy_percent": 80,
+        }
+
+        self.assertFalse(mission_stats_are_perfect(stats, 23))
+
+    def test_record_latest_progress_does_not_mark_imperfect_accuracy(self):
+        player = create_player_record("Pilot")
+        player["last_mission_stats"] = {
+            "lesson_number": 23,
+            "won": True,
+            "hits_taken": 0,
+            "accurate_inputs": 8,
+            "inaccurate_inputs": 2,
+            "accuracy_percent": 80,
+        }
+
+        record_latest_mission_achievement_progress(player, 23)
+
+        self.assertNotIn(23, player["perfect_lessons"])
+
+    def test_record_latest_progress_marks_exact_perfect_mission(self):
+        player = create_player_record("Pilot")
+        player["last_mission_stats"] = {
+            "lesson_number": 23,
+            "won": True,
+            "hits_taken": 0,
+            "accurate_inputs": 10,
+            "inaccurate_inputs": 0,
+            "accuracy_percent": 100,
+        }
+
+        record_latest_mission_achievement_progress(player, 23)
+
+        self.assertIn(23, player["perfect_lessons"])
 
 
 if __name__ == "__main__":

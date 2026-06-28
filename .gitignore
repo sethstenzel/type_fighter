@@ -7,6 +7,7 @@ type_fighter_game_config.json
 codex.txt
 
 # Local packaged server settings; keep real secrets out of git
+settings.cfg
 src/settings.cfg
 
 # Source-art and scratch assets that should not ship in the runtime repo

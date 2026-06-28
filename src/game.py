@@ -39,7 +39,9 @@ from player_model import (
     disabled_icon_name,
     has_achievement,
     has_upgrade,
+    mark_lesson_complete,
     max_sell_quantity,
+    mission_stats_are_perfect,
     normalize_achievement_awards,
     normalize_lesson_number_list,
     normalize_pod_upgrades,
@@ -130,18 +132,25 @@ def return_to_signin():
     return "signin"
 
 
-def setup_logging():
+def logging_enabled():
+    return "--logging" in sys.argv or "--verbose-logging" in sys.argv or "--debug" in sys.argv
+
+
+def setup_logging(verbose=False):
     logger.remove()
     log_path = APP_CONFIG_DIR / "type_fighter.log"
+    level = "DEBUG" if verbose else "INFO"
     logger.add(
         log_path,
         rotation="2 MB",
         retention=5,
         compression="zip",
         backtrace=True,
-        diagnose=False,
-        level="INFO",
+        diagnose=verbose,
+        level=level,
     )
+    if verbose:
+        logger.add(sys.stderr, level="DEBUG", backtrace=True, diagnose=True)
 
     def handle_exception(exc_type, exc_value, exc_traceback):
         if issubclass(exc_type, KeyboardInterrupt):
@@ -150,7 +159,7 @@ def setup_logging():
         logger.opt(exception=(exc_type, exc_value, exc_traceback)).critical("Unhandled client exception")
 
     sys.excepthook = handle_exception
-    logger.info("Type Fighter client logging started at {}", log_path)
+    logger.info("Type Fighter client logging started at {} level={}", log_path, level)
 
 
 LESSONS = [
@@ -893,14 +902,7 @@ def unlocked_lesson_count(player):
 
 def mark_lesson_perfect_if_applicable(player, lesson_number):
     stats = player.get("last_mission_stats")
-    if not isinstance(stats, dict):
-        return False
-    if (
-        stats.get("lesson_number") != lesson_number
-        or not stats.get("won")
-        or stats.get("hits_taken", 0) != 0
-        or stats.get("inaccurate_inputs", 0) != 0
-    ):
+    if not mission_stats_are_perfect(stats, lesson_number):
         return False
     perfect_lessons = set(normalize_lesson_number_list(player.get("perfect_lessons", [])))
     before_count = len(perfect_lessons)
@@ -2942,7 +2944,7 @@ def set_windows_app_id():
 def main():
     load_cached_config(GAME_CONFIG_CACHE_PATH)
     apply_game_settings()
-    setup_logging()
+    setup_logging(logging_enabled())
     set_windows_app_id()
     pygame.init()
     try:

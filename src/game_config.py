@@ -29,10 +29,10 @@ DEFAULT_GAME_SETTINGS = {
     "final_boss_count_by_lesson": {str(lesson): 1 for lesson in range(5, 37)},
     "accuracy_threshold_bands": [
         {"start": 1, "end": 3, "warning_threshold": 10, "limited_threshold": 10},
-        {"start": 4, "end": 10, "warning_threshold": 40, "limited_threshold": 30},
-        {"start": 11, "end": 20, "warning_threshold": 70, "limited_threshold": 60},
-        {"start": 21, "end": 30, "warning_threshold": 75, "limited_threshold": 65},
-        {"start": 31, "end": None, "warning_threshold": 80, "limited_threshold": 70},
+        {"start": 4, "end": 9, "warning_threshold": 40, "limited_threshold": 30},
+        {"start": 10, "end": 19, "warning_threshold": 70, "limited_threshold": 60},
+        {"start": 20, "end": 29, "warning_threshold": 75, "limited_threshold": 65},
+        {"start": 30, "end": None, "warning_threshold": 80, "limited_threshold": 70},
     ],
 }
 

@@ -11,9 +11,12 @@ from lessons.mission_engine import (
     Drone,
     FinalBoss,
     MEGA_DRONE_HP,
+    accuracy_thresholds_for_lesson,
+    defense_drone_remaining_shot_capacity,
     mega_charge_required_for_target,
     mega_damage_for_target,
     player_defense_drone_count,
+    queue_shot_at,
     queue_mega_shot,
 )
 
@@ -67,6 +70,70 @@ class MissionMechanicsTests(unittest.TestCase):
         }
 
         self.assertEqual(player_defense_drone_count(player), 3)
+
+    def test_second_defense_drone_counts_from_purchased_upgrade_ids(self):
+        player = {
+            "purchased_upgrade_ids": ["defense_drone", "second_defense_drone"],
+            "pod": {"upgrades": []},
+            "achievements": {},
+        }
+
+        self.assertEqual(player_defense_drone_count(player), 2)
+
+    def test_major_rank_grants_reward_drone_without_purchased_drones(self):
+        player = {
+            "purchased_upgrade_ids": [],
+            "pod": {"upgrades": []},
+            "achievements": {"major_rank": True},
+        }
+
+        self.assertEqual(player_defense_drone_count(player), 1)
+
+    def test_updated_accuracy_threshold_bands(self):
+        cases = {
+            1: (10, 10),
+            3: (10, 10),
+            4: (40, 30),
+            9: (40, 30),
+            10: (70, 60),
+            19: (70, 60),
+            20: (75, 65),
+            29: (75, 65),
+            30: (80, 70),
+            36: (80, 70),
+        }
+
+        for lesson_number, expected_thresholds in cases.items():
+            with self.subTest(lesson_number=lesson_number):
+                self.assertEqual(accuracy_thresholds_for_lesson(lesson_number), expected_thresholds)
+
+    def test_player_can_target_drone_reserved_by_defense_drone(self):
+        drone = self.drone(hp=1)
+        drone.incoming_defense_damage = 1
+        pending = []
+
+        queued = queue_shot_at([drone], pending, "k", pygame.Vector2(0, 0), 0)
+
+        self.assertTrue(queued)
+        self.assertEqual(drone.incoming_damage, 1)
+        self.assertEqual(drone.incoming_defense_damage, 1)
+
+    def test_defense_reservation_capacity_is_separate_from_player_shots(self):
+        drone = self.drone(hp=1)
+        drone.incoming_damage = 1
+
+        self.assertEqual(defense_drone_remaining_shot_capacity(drone), 1)
+
+        drone.incoming_defense_damage = 1
+        self.assertEqual(defense_drone_remaining_shot_capacity(drone), 0)
+
+    def test_defense_drones_can_reserve_extra_split_capacity(self):
+        drone = self.drone(hp=2)
+
+        self.assertEqual(defense_drone_remaining_shot_capacity(drone), 3)
+
+        drone.incoming_defense_damage = 1
+        self.assertEqual(defense_drone_remaining_shot_capacity(drone), 2)
 
 
 if __name__ == "__main__":

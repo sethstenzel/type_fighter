@@ -143,10 +143,10 @@ ACCURACY_MAX_CHARGES = 5
 ACCURACY_RECHARGE_INTERVAL_MS = 3000
 ACCURACY_THRESHOLD_BANDS = (
     (1, 3, 10, 10),
-    (4, 10, 40, 30),
-    (11, 20, 70, 60),
-    (21, 30, 75, 65),
-    (31, None, 80, 70),
+    (4, 9, 40, 30),
+    (10, 19, 70, 60),
+    (20, 29, 75, 65),
+    (30, None, 80, 70),
 )
 POWER_UP_DURATION_MS = 5000
 POWER_UP_WARNING_MS = 2000
@@ -280,6 +280,7 @@ class Drone:
     next_shot_time: int = 0
     rotation: float = 0
     incoming_damage: int = 0
+    incoming_defense_damage: int = 0
     level_value: float = 1.0
     target_pos: pygame.Vector2 | None = None
     is_drifting: bool = False
@@ -605,9 +606,13 @@ def player_shield_available(player, lesson_number):
 def player_upgrade_ids(player):
     if not isinstance(player, dict):
         return set()
+    ids = {
+        str(upgrade_id).strip()
+        for upgrade_id in player.get("purchased_upgrade_ids", [])
+        if str(upgrade_id).strip()
+    }
     pod = player.get("pod", {})
     upgrades = pod.get("upgrades", []) if isinstance(pod, dict) else []
-    ids = set()
     for upgrade in upgrades:
         if isinstance(upgrade, str):
             ids.add(upgrade)
@@ -944,6 +949,10 @@ def drone_remaining_shot_capacity(drone):
     return max(0, regular_drone_shot_capacity(drone) - drone.incoming_damage)
 
 
+def defense_drone_remaining_shot_capacity(drone):
+    return max(0, regular_drone_shot_capacity(drone) - drone.incoming_defense_damage)
+
+
 def nearest_drone_for_key(drones, key, center):
     matches = [drone for drone in drones if drone.letter == key and can_target_drone(drone)]
     if not matches:
@@ -1058,6 +1067,15 @@ def reserve_split_child_target(children, damage=1):
         return None
     target = min(available, key=lambda child: (child.incoming_damage, child.pos.y))
     target.incoming_damage += damage
+    return target
+
+
+def reserve_split_child_defense_target(children, damage=1):
+    available = [child for child in children if defense_drone_remaining_shot_capacity(child) >= damage]
+    if not available:
+        return None
+    target = min(available, key=lambda child: (child.incoming_defense_damage, child.pos.y))
+    target.incoming_defense_damage += damage
     return target
 
 
@@ -1959,10 +1977,12 @@ class MissionEngine:
         self.bullets = []
         self.mega_shots = []
         defense_drone_count = player_defense_drone_count(player)
+        defense_fire_stagger_ms = DEFENSE_DRONE_FIRE_INTERVAL_MS / max(1, defense_drone_count)
+        defense_fire_start_time = pygame.time.get_ticks()
         self.defense_drones = [
             DefenseDrone(
                 angle=index * math.tau / max(1, defense_drone_count),
-                next_fire_time=pygame.time.get_ticks() + DEFENSE_DRONE_FIRE_INTERVAL_MS,
+                next_fire_time=int(defense_fire_start_time + defense_fire_stagger_ms * (index + 1)),
             )
             for index in range(defense_drone_count)
         ]
@@ -2263,6 +2283,10 @@ class MissionEngine:
             if mega_shot.target is parent:
                 child = reserve_split_child_target(children, mega_damage(mega_shot.charge_level))
                 mega_shot.target = child
+        for defense_shot in self.defense_shots:
+            if defense_shot.target is parent:
+                child = reserve_split_child_defense_target(children, 1)
+                defense_shot.target = child
 
     def _show_end_screen(self, won):
         self._save_player_resources()
@@ -2271,12 +2295,19 @@ class MissionEngine:
         if won:
             self._add_lifetime_score()
         if self.player is not None:
+            total_accuracy_inputs = self.accurate_inputs + self.inaccurate_inputs
+            accuracy_percent = (
+                100
+                if total_accuracy_inputs <= 0
+                else round(self.accurate_inputs * 100 / total_accuracy_inputs)
+            )
             self.player["last_mission_stats"] = {
                 "lesson_number": self.lesson_number,
                 "won": bool(won),
                 "hits_taken": max(0, self.hits_taken),
                 "accurate_inputs": max(0, self.accurate_inputs),
                 "inaccurate_inputs": max(0, self.inaccurate_inputs),
+                "accuracy_percent": accuracy_percent,
                 "starting_shield_charges": max(0, self.starting_shield_charges),
                 "ending_shield_charges": max(0, self.shield_charges),
             }
@@ -2671,7 +2702,7 @@ class MissionEngine:
     def _damage_drone_from_defense_shot(self, drone):
         if drone not in self.drones:
             return
-        drone.incoming_damage = max(0, drone.incoming_damage - 1)
+        drone.incoming_defense_damage = max(0, drone.incoming_defense_damage - 1)
         drone.hp -= 1
         if drone.hp > 0 and not drone.is_mega:
             self.drones.remove(drone)
@@ -2696,6 +2727,7 @@ class MissionEngine:
             drone
             for drone in self.drones
             if self._defense_drone_has_line_of_sight(defense_pos, drone.pos)
+            and defense_drone_remaining_shot_capacity(drone) > 0
         ]
         return random.choice(candidates) if candidates else None
 
@@ -2725,7 +2757,7 @@ class MissionEngine:
                         direction = pygame.Vector2(0, -1)
                     else:
                         direction = direction.normalize()
-                    target.incoming_damage += 1
+                    target.incoming_defense_damage += 1
                     self.defense_shots.append(
                         DefenseShot(
                             pos=defense_pos + direction * (DEFENSE_DRONE_RADIUS + DEFENSE_DRONE_SHOT_RADIUS + 2),
@@ -2740,7 +2772,7 @@ class MissionEngine:
         for shot in self.defense_shots[:]:
             if shot.target not in self.drones:
                 if shot.target is not None:
-                    shot.target.incoming_damage = max(0, shot.target.incoming_damage - 1)
+                    shot.target.incoming_defense_damage = max(0, shot.target.incoming_defense_damage - 1)
                 shot.target = None
                 add_shot_trail(self.shot_trails, shot, pygame.time.get_ticks())
                 shot.pos += shot.vel * dt
@@ -2760,7 +2792,7 @@ class MissionEngine:
             add_shot_trail(self.shot_trails, shot, pygame.time.get_ticks())
             shot.pos += shot.vel * dt
             if bullet_is_offscreen(shot, self.screen):
-                shot.target.incoming_damage = max(0, shot.target.incoming_damage - 1)
+                shot.target.incoming_defense_damage = max(0, shot.target.incoming_defense_damage - 1)
                 self.defense_shots.remove(shot)
 
     def run(self):
