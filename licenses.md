@@ -27,9 +27,23 @@ license:       https://www.looperman.com/help/terms
 original_url:  https://www.looperman.com/loops/detail/411401/lofi-loopy-synth-brass-free-140bpm-lo-fi-brass-loop
 original_name: looperman-l-7536887-0411401-lofi-loopy-synth-brass.wav
 asset_name:    bgmusic.wav
+
+looperman:     https://www.looperman.com/
+license:       https://www.looperman.com/help/terms
+original_url:  https://www.looperman.com/loops/detail/312764/late-night-free-143bpm-trap-pad-loop
+original_name: looperman-l-5352756-0312764-late-night.wav
+asset_name:    game_intro_music.wav
+
+looperman:     https://www.looperman.com/
+license:       https://www.looperman.com/help/terms
+original_url:  https://www.looperman.com/loops/detail/298937/0xa8677001-free-132bpm-industrial-drum-loop
+original_name: looperman-l-1791281-0298937-0xa8677001.wav
+asset_name:    boss_music.wav
+
  
 ```
 
 # GFX
 ```
+None
 ```

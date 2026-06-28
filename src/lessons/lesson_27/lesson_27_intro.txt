@@ -1,25 +1,15 @@
-Welcome back, pilot ... lesson 27 is ready.
+Welcome back, pilot ... shifted symbols begin now.
 
-Your new training keys are ! and ).
+Your new training keys are 'exclamation mark' and 'right parenthesis'.
 
-These keys use: Shift + 1, Shift + 0.
+For !, hold right Shift and press 1 with your left pinky. For ), hold left Shift and press 0 with your right pinky.
 
-You are not starting over. Every key from the earlier lessons is still part of your control panel.
-Your job is to add these two new keys while keeping your hands anchored and your eyes forward.
+You are not starting over. Every key from the earlier missions can still show up.
 
-Before launch, place both hands on the home row.
-Find F and J by touch if you need to reset your position.
-Then prepare the fingers for ! and ).
+Before launch, settle your hands on the home row. Find F and J by touch, rehearse the new reach, then bring your eyes forward.
 
-When a drone shows one of the new keys, press it with the correct finger.
-When a drone shows a key from an earlier lesson, use the finger you already trained.
-After every key press, return to your ready position.
+From here on, Shift becomes part of the fight. Do not panic. Hold it, press the symbol, and let go.
 
-Do not chase the keyboard with your whole hand.
-Do not look down if you can help it.
-Small movements, steady hands, eyes forward.
+Small movements. Clean returns. No looking down if you can help it.
 
-In this mission, drones may use all keys you have learned so far, with extra focus on ! and ).
-Stay calm, read the drone, press the key, and get back to ready position.
-
-To launch the training simulation, use either thumb to press the ␣.
+To launch the training simulation, press Spacebar when you are ready.

@@ -157,7 +157,7 @@ DEFAULT_ACHIEVEMENTS = [
     {
         "id": "major_rank",
         "name": "Major",
-        "text": "You reached Major rank. Few pilots control the full keyboard this well.",
+        "text": "You reached Major rank. Your defense formation now supports a third defense drone.",
         "image": "rank_major_achievement.png",
         "reward_credits": 2000,
         "score": 2000,

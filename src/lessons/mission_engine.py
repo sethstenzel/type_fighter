@@ -7,6 +7,16 @@ from pathlib import Path
 import pygame
 import session_state
 
+from lessons.audio import (
+    audio_duration_ms,
+    load_first_sound,
+    load_sound,
+    play_audio,
+    play_looping_sound,
+    play_sound,
+    stop_audio,
+    stop_looping_sound,
+)
 from display_helpers import (
     SCREEN_SIZE as BASE_SCREEN_SIZE,
     enforce_16_9_window,
@@ -377,21 +387,6 @@ class Star:
     speed_scale: float
 
 
-def play_audio(path):
-    if not pygame.mixer.get_init():
-        return
-    try:
-        pygame.mixer.music.load(str(path))
-        pygame.mixer.music.play()
-    except pygame.error:
-        pass
-
-
-def stop_audio():
-    if pygame.mixer.get_init():
-        pygame.mixer.music.stop()
-
-
 def toggle_fullscreen():
     screen = pygame.display.get_surface()
     if is_letterboxed_fullscreen() or screen.get_flags() & pygame.FULLSCREEN:
@@ -401,45 +396,6 @@ def toggle_fullscreen():
 
 def enforce_min_window_size(screen):
     return enforce_16_9_window(screen)
-
-
-def load_sound(path, volume=1.0):
-    if not pygame.mixer.get_init():
-        return None
-    try:
-        sound = pygame.mixer.Sound(str(path))
-        sound.set_volume(volume)
-        return sound
-    except (OSError, pygame.error):
-        return None
-
-
-def load_first_sound(paths, volume=1.0):
-    for path in paths:
-        sound = load_sound(path, volume)
-        if sound is not None:
-            return sound
-    return None
-
-
-def play_sound(sound):
-    if sound is not None:
-        sound.play()
-
-
-def play_looping_sound(sound, fade_ms=0):
-    if sound is None:
-        return None
-    return sound.play(loops=-1, fade_ms=fade_ms)
-
-
-def stop_looping_sound(channel, fade_ms=0):
-    if channel is None:
-        return
-    if fade_ms:
-        channel.fadeout(fade_ms)
-    else:
-        channel.stop()
 
 
 def load_image(path):
@@ -476,15 +432,6 @@ def load_json_object(path):
     except (OSError, json.JSONDecodeError):
         return {}
     return data if isinstance(data, dict) else {}
-
-
-def audio_duration_ms(path):
-    if not pygame.mixer.get_init():
-        return 0
-    try:
-        return int(pygame.mixer.Sound(str(path)).get_length() * 1000)
-    except pygame.error:
-        return 0
 
 
 def wrap_text(text, font, max_width):
@@ -704,10 +651,18 @@ def player_shield_max_charges(player):
 
 def player_defense_drone_count(player):
     upgrades = player_upgrade_ids(player)
+    achievements = player.get("achievements", {}) if isinstance(player, dict) else {}
+    earned_achievements = (
+        {achievement_id for achievement_id, awarded in achievements.items() if awarded}
+        if isinstance(achievements, dict)
+        else set(achievements if isinstance(achievements, list) else [])
+    )
     count = 0
     if "defense_drone" in upgrades:
         count += 1
     if "second_defense_drone" in upgrades:
+        count += 1
+    if "major_rank" in earned_achievements:
         count += 1
     return count
 
@@ -2006,7 +1961,7 @@ class MissionEngine:
         defense_drone_count = player_defense_drone_count(player)
         self.defense_drones = [
             DefenseDrone(
-                angle=index * math.pi,
+                angle=index * math.tau / max(1, defense_drone_count),
                 next_fire_time=pygame.time.get_ticks() + DEFENSE_DRONE_FIRE_INTERVAL_MS,
             )
             for index in range(defense_drone_count)

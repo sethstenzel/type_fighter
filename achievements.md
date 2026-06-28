@@ -9,7 +9,7 @@ Achievements are earned by completing specific progress, performance, upgrade, o
 | Private | Reach Private rank. | 500 credits |
 | Lieutenant | Reach Lieutenant rank. | 750 credits |
 | Captain | Reach Captain rank. | 1,000 credits |
-| Major | Reach Major rank. | 2,000 credits |
+| Major | Reach Major rank. | 2,000 credits and third defense drone support |
 
 ## Perfect Mission Achievements
 

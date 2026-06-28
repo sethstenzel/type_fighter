@@ -1,9 +1,5 @@
-from lessons.mission_engine import *  # noqa: F403
-
-
-LESSON_DIR_NAME = "lesson_1"
-VALID_KEYS = ("f", "j")
+from lessons.generic_mission import run_lesson_mission
 
 
 def run(screen, clock, base_dir, player=None):
-    return run_mission(screen, clock, base_dir, LESSON_DIR_NAME, VALID_KEYS, player)
+    return run_lesson_mission(screen, clock, base_dir, 1, player)

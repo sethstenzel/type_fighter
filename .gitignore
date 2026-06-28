@@ -1,6 +1,20 @@
 # Release
 releases/*
 
+# Local save/config/cache data
+players.json
+type_fighter_game_config.json
+codex.txt
+
+# Local packaged server settings; keep real secrets out of git
+src/settings.cfg
+
+# Source-art and scratch assets that should not ship in the runtime repo
+*.psd
+*.PSD
+src/gfx/psds/
+src/gfx/junk_drawer/
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

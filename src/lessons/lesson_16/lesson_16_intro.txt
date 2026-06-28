@@ -1,25 +1,15 @@
-Welcome back, pilot ... lesson 16 is ready.
+Welcome back, pilot ... today we add a control key.
 
-Your new training key is ENTER.
+Your new training keys are 'Enter'.
 
-This key uses: right pinky.
+Press Enter with your right pinky. Tap it, then come right back home.
 
-You are not starting over. Every key from the earlier lessons is still part of your control panel.
-Your job is to add this new key while keeping your hands anchored and your eyes forward.
+You are not starting over. Every key from the earlier missions can still show up.
 
-Before launch, place both hands on the home row.
-Find F and J by touch if you need to reset your position.
-Then prepare the finger for ENTER.
+Before launch, settle your hands on the home row. Find F and J by touch, rehearse the new reach, then bring your eyes forward.
 
-When a drone shows one of the new keys, press it with the correct finger.
-When a drone shows a key from an earlier lesson, use the finger you already trained.
-After every key press, return to your ready position.
+Control keys are different. They are bigger targets, but they can pull your hand out of formation if you let them.
 
-Do not chase the keyboard with your whole hand.
-Do not look down if you can help it.
-Small movements, steady hands, eyes forward.
+Small movements. Clean returns. No looking down if you can help it.
 
-In this mission, drones may use all keys you have learned so far, with extra focus on ENTER.
-Stay calm, read the drone, press the key, and get back to ready position.
-
-To launch the training simulation, use either thumb to press the ␣.
+To launch the training simulation, press Spacebar when you are ready.
