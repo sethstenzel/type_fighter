@@ -5,6 +5,7 @@ import random
 from pathlib import Path
 
 import pygame
+import session_state
 
 from display_helpers import (
     SCREEN_SIZE as BASE_SCREEN_SIZE,
@@ -126,6 +127,7 @@ MEGA_RECHARGE_INTERVAL_MS = 1000
 MEGA_RECHARGE_DELAY_MS = 1000
 MEGA_SHIELD_MIN_LEVEL = 3
 MEGA_FINAL_KILL_LEVEL = 5
+MEGA_MINI_BOSS_KILL_LEVEL = 4
 ACCURACY_SYSTEM_START_LESSON = 1
 ACCURACY_MAX_CHARGES = 5
 ACCURACY_RECHARGE_INTERVAL_MS = 3000
@@ -610,6 +612,14 @@ def player_mega_shot_available(player, lesson_number):
     return all(number in completed for number in range(1, 5))
 
 
+def player_advanced_mega_shot_available(player, lesson_number):
+    if lesson_number >= 20:
+        return True
+    if not isinstance(player, dict):
+        return False
+    return 19 in set(player.get("completed_lessons", []))
+
+
 def final_boss_count(lesson_number):
     if lesson_number < 5:
         return 0
@@ -852,9 +862,10 @@ def spawn_next_drone(drones, screen, destroyed, valid_keys, spawned_count, mini_
 
 def split_regular_drone(drones, drone):
     if drone.is_mega or drone.max_hp <= 1 or drone.hp < 1:
-        return
+        return []
     child_hp = max(1, drone.hp)
     spread = max(18, drone.radius * 0.7)
+    children = []
     for offset in (-spread, spread):
         child = Drone(
             pos=drone.pos + pygame.Vector2(offset, random.uniform(-spread, spread)),
@@ -866,6 +877,8 @@ def split_regular_drone(drones, drone):
             level_value=drone.level_value / 2,
         )
         drones.append(child)
+        children.append(child)
+    return children
 
 
 def next_power_up_time(now):
@@ -963,7 +976,17 @@ def handle_power_up_key(power_up, pressed_key):
 def can_target_drone(drone):
     if drone.is_mega:
         return drone.hp - drone.incoming_damage > 0
-    return drone.incoming_damage == 0
+    return drone.incoming_damage < regular_drone_shot_capacity(drone)
+
+
+def regular_drone_shot_capacity(drone):
+    if drone.is_mega:
+        return max(0, drone.hp)
+    return max(1, (2 ** max(1, drone.hp)) - 1)
+
+
+def drone_remaining_shot_capacity(drone):
+    return max(0, regular_drone_shot_capacity(drone) - drone.incoming_damage)
 
 
 def nearest_drone_for_key(drones, key, center):
@@ -1015,6 +1038,23 @@ def mega_damage(charge_level):
     return 2 ** (level - 1)
 
 
+def mega_damage_for_target(target, charge_level):
+    level = max(1, min(MEGA_CHARGE_MAX_BLOCKS, charge_level))
+    if isinstance(target, Drone) and target.is_mega:
+        return target.hp if level >= MEGA_MINI_BOSS_KILL_LEVEL else level + 1
+    return mega_damage(level)
+
+
+def mega_charge_required_for_target(target):
+    if isinstance(target, FinalBoss):
+        return MEGA_FINAL_KILL_LEVEL
+    if isinstance(target, Drone):
+        if target.is_mega:
+            return MEGA_MINI_BOSS_KILL_LEVEL
+        return max(1, min(MEGA_CHARGE_MAX_BLOCKS, target.max_hp))
+    return MEGA_CHARGE_MAX_BLOCKS
+
+
 def mega_shot_speed(charge_level):
     level = max(1, min(MEGA_CHARGE_MAX_BLOCKS, charge_level))
     speed_multipliers = {
@@ -1035,16 +1075,18 @@ def mega_target(drones, final_bosses, key, center):
     return nearest_drone_for_key(drones, key, center)
 
 
-def queue_mega_shot(drones, final_bosses, pending_shots, key, center, charge_level, now):
+def queue_mega_shot(drones, final_bosses, pending_shots, key, center, charge_level, now, advanced=False):
     target = mega_target(drones, final_bosses, key, center)
     if target is None:
-        return False
+        return 0
     charge_level = max(1, min(MEGA_CHARGE_MAX_BLOCKS, charge_level))
-    damage = mega_damage(charge_level)
+    if advanced:
+        charge_level = min(charge_level, mega_charge_required_for_target(target))
+    damage = mega_damage_for_target(target, charge_level)
     if isinstance(target, Drone):
         target.incoming_damage += damage
     pending_shots.append(PendingShot(target=target, damage=damage, created_at=now, mega_charge_level=charge_level))
-    return True
+    return charge_level
 
 
 def release_pending_shot(pending_shot):
@@ -1053,6 +1095,15 @@ def release_pending_shot(pending_shot):
             0,
             pending_shot.target.incoming_damage - pending_shot.damage,
         )
+
+
+def reserve_split_child_target(children, damage=1):
+    available = [child for child in children if drone_remaining_shot_capacity(child) >= damage]
+    if not available:
+        return None
+    target = min(available, key=lambda child: (child.incoming_damage, child.pos.y))
+    target.incoming_damage += damage
+    return target
 
 
 def fire_pending_shot(pending_shot, bullets, mega_shots, center):
@@ -1386,8 +1437,8 @@ def draw_defense_drone(screen, defense_drone, player_center, defense_drone_image
     pygame.draw.polygon(screen, (224, 228, 232), points, 2)
 
 
-def draw_defense_shot(screen, shot):
-    pygame.draw.circle(screen, BULLET_COLOR, shot.pos, DEFENSE_DRONE_SHOT_RADIUS)
+def draw_defense_shot(screen, shot, color=BULLET_COLOR):
+    pygame.draw.circle(screen, color, shot.pos, DEFENSE_DRONE_SHOT_RADIUS)
 
 
 def draw_ship(screen, turret_angle, pod_rotation, turret_image=None, pod_image=None, center=None):
@@ -1883,6 +1934,7 @@ class MissionEngine:
         self.shot_charge_color = player_upgrade_color(player, "ammo_charge_color")
         self.shot_trail_color = player_splash_rgb(self.shot_charge_color)
         self.player_mega_shot_available = player_mega_shot_available(player, self.lesson_number)
+        self.player_advanced_mega_shot_available = player_advanced_mega_shot_available(player, self.lesson_number)
         self.player_shields_available = player_shield_available(player, self.lesson_number)
         self.max_shield_charges = player_shield_max_charges(player)
         self.target_keys = mission_target_keys(valid_keys, self.lesson_number, self.player_mega_shot_available)
@@ -2024,6 +2076,9 @@ class MissionEngine:
         scroll_speed = 0
         try:
             while True:
+                if session_state.has_forced_disconnect():
+                    stop_audio()
+                    return "signin"
                 now = pygame.time.get_ticks()
                 dt = self.clock.tick(60) / 1000
                 for event in pygame.event.get():
@@ -2237,6 +2292,22 @@ class MissionEngine:
             defense_drone.last_shot_key == pressed_key and now <= defense_drone.last_shot_grace_until
             for defense_drone in self.defense_drones
         )
+
+    def _retarget_split_shots(self, parent, children):
+        if not children:
+            return
+        for pending_shot in self.pending_shots:
+            if pending_shot.target is parent:
+                child = reserve_split_child_target(children, pending_shot.damage)
+                pending_shot.target = child
+        for bullet in self.bullets:
+            if bullet.target is parent:
+                child = reserve_split_child_target(children, 1)
+                bullet.target = child
+        for mega_shot in self.mega_shots:
+            if mega_shot.target is parent:
+                child = reserve_split_child_target(children, mega_damage(mega_shot.charge_level))
+                mega_shot.target = child
 
     def _show_end_screen(self, won):
         self._save_player_resources()
@@ -2473,7 +2544,7 @@ class MissionEngine:
             draw_mega_shot(self.screen, mega_shot, self.shot_image)
 
         for defense_shot in self.defense_shots:
-            draw_defense_shot(self.screen, defense_shot)
+            draw_defense_shot(self.screen, defense_shot, self.shot_trail_color)
 
         draw_power_up(self.screen, self.power_up, now)
         for final_boss in self.final_bosses:
@@ -2513,7 +2584,7 @@ class MissionEngine:
         mega_text = ""
         mega_active = False
         if self.player_mega_shot_available:
-            mega_text = "Mega Shot"
+            mega_text = "Adv. Mega Shot" if self.player_advanced_mega_shot_available else "Mega Shot"
             mega_active = self.mega_charge_blocks > 0
         width, _ = self.screen.get_size()
         if self.player_mega_shot_available and self.player_shields_available:
@@ -2533,10 +2604,6 @@ class MissionEngine:
             shield_center_x,
         )
         draw_hud(self.screen, self.font, min(self.destroyed, self.drone_target), self.drone_target, self.score, self.lives)
-
-        key_hint = ", ".join(display_key(key) for key in self.target_keys)
-        hint = f"Press {key_hint} to fire. F11 toggles max size. Esc returns to menu."
-        render_inline_text(self.screen, hint, pygame.font.SysFont("arial", 18), MUTED_TEXT, (22, height - 34))
 
         if present:
             pygame.display.flip()
@@ -2653,7 +2720,8 @@ class MissionEngine:
         drone.hp -= 1
         if drone.hp > 0 and not drone.is_mega:
             self.drones.remove(drone)
-            split_regular_drone(self.drones, drone)
+            children = split_regular_drone(self.drones, drone)
+            self._retarget_split_shots(drone, children)
             play_sound(self.split_sound)
         elif drone.hp <= 0:
             self._count_defense_drone_kill(drone)
@@ -2749,6 +2817,9 @@ class MissionEngine:
 
         while True:
             dt, now = self._begin_frame()
+            if session_state.has_forced_disconnect():
+                stop_audio()
+                return self._finish("signin")
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     stop_audio()
@@ -2823,10 +2894,11 @@ class MissionEngine:
                                 self.player_center,
                                 self.mega_charge_blocks,
                                 now,
+                                self.player_advanced_mega_shot_available,
                             )
                             if queued_mega:
                                 self._record_accurate_input(now)
-                                self.mega_charge_blocks = 0
+                                self.mega_charge_blocks = max(0, self.mega_charge_blocks - queued_mega)
                                 self.next_mega_recharge_time = now + MEGA_RECHARGE_DELAY_MS
                                 continue
                         if self._handle_accuracy_blocked_fire():
@@ -2892,7 +2964,8 @@ class MissionEngine:
                     if bullet.target.hp > 0 and not bullet.target.is_mega and bullet.target in self.drones:
                         hit_drone = bullet.target
                         self.drones.remove(hit_drone)
-                        split_regular_drone(self.drones, hit_drone)
+                        children = split_regular_drone(self.drones, hit_drone)
+                        self._retarget_split_shots(hit_drone, children)
                         play_sound(self.split_sound)
                         continue
                     if bullet.target.hp <= 0 and bullet.target in self.drones:
@@ -2945,12 +3018,13 @@ class MissionEngine:
                         continue
 
                     if isinstance(target, Drone) and target in self.drones:
-                        damage = mega_damage(mega_shot.charge_level)
+                        damage = mega_damage_for_target(target, mega_shot.charge_level)
                         target.incoming_damage = max(0, target.incoming_damage - damage)
                         target.hp -= damage
                         if target.hp > 0 and not target.is_mega:
                             self.drones.remove(target)
-                            split_regular_drone(self.drones, target)
+                            children = split_regular_drone(self.drones, target)
+                            self._retarget_split_shots(target, children)
                             play_sound(self.split_sound)
                         elif target.hp <= 0:
                             pos = target.pos.copy()

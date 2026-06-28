@@ -1,0 +1,7 @@
+{
+  "unlock_1": {
+    "unlock_1_title": "Advanced Mega Shot Unlocked!",
+    "unlock_1_text": "Mega Shot now uses only the charge required for the target. Smaller drones consume less charge, while final bosses can still require a full charge.",
+    "unlock_1_img": "gfx/upgrades/shot_charge_color.png"
+  }
+}

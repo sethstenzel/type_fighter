@@ -6,6 +6,7 @@ from pathlib import Path
 import random
 import re
 import sys
+import threading
 import uuid
 from urllib import error, parse, request
 
@@ -25,6 +26,7 @@ from lessons.key_render import render_inline_text, render_key_label
 from lessons import mission_engine
 from lessons.mission_engine import create_star_field, draw_star_field, update_star_field
 import player_limits
+import session_state
 from game_config import ACHIEVEMENTS, GAME_SETTINGS, UPGRADE_CATALOG, load_cached_config, save_cached_config, apply_config
 from versioning import CLIENT_VERSION
 
@@ -77,6 +79,8 @@ is_fullscreen = True
 ui_image_cache = {}
 ui_sound_cache = {}
 menu_music_channel = None
+heartbeat_thread = None
+heartbeat_stop_event = threading.Event()
 player_storage = {
     "remote_enabled": False,
     "server_url": "",
@@ -84,6 +88,7 @@ player_storage = {
     "account": None,
     "save_login": False,
     "active_player_id": "",
+    "active_player_session": "",
     "warning": "",
     "offline_warning": "",
 }
@@ -179,6 +184,16 @@ def drag_scroll_index(mouse_y, track_rect, thumb_height, total_items, visible_it
     travel = max(1, track_rect.height - thumb_height)
     thumb_y = max(track_rect.y, min(mouse_y - drag_offset, track_rect.y + travel))
     return int(round((thumb_y - track_rect.y) * max_first_visible / travel))
+
+
+def keep_index_visible(index, first_visible, total_items, visible_items):
+    max_first_visible = max(0, total_items - visible_items)
+    first_visible = max(0, min(first_visible, max_first_visible))
+    if index < first_visible:
+        return max(0, min(index, max_first_visible))
+    if index >= first_visible + visible_items:
+        return max(0, min(index - visible_items + 1, max_first_visible))
+    return first_visible
 
 
 def wheel_menu_step(event):
@@ -609,7 +624,7 @@ def draw_version_label(screen, font):
         screen.blit(warning, warning.get_rect(right=label.get_rect(right=width - 24).left - 18, bottom=height - 26))
 
 
-def remote_request(method, path, payload=None, timeout=2):
+def remote_request(method, path, payload=None, timeout=2, extra_headers=None):
     server_url = player_storage.get("server_url", "")
     if not server_url:
         raise OSError("Type Fighter server is not configured")
@@ -624,6 +639,8 @@ def remote_request(method, path, payload=None, timeout=2):
     if payload is not None:
         body = json.dumps(payload).encode("utf-8")
         headers["Content-Type"] = "application/json"
+    if extra_headers:
+        headers.update(extra_headers)
     url = f"{server_url}{path}"
     logger.debug("Remote request {} {}", method, path)
     req = request.Request(url, data=body, headers=headers, method=method)
@@ -680,11 +697,19 @@ def load_remote_players():
 
 def save_remote_players(players):
     active_player_id = player_storage.get("active_player_id", "")
+    player_session = player_storage.get("active_player_session", "")
+    headers = {"X-Player-Session": player_session} if player_session else None
     for player in players:
         if isinstance(player, dict) and player.get("id"):
             if active_player_id and player["id"] != active_player_id:
                 continue
-            remote_request("PUT", f"/players/{parse.quote(player['id'], safe='')}", {"data": player}, timeout=4)
+            remote_request(
+                "PUT",
+                f"/players/{parse.quote(player['id'], safe='')}",
+                {"data": player},
+                timeout=4,
+                extra_headers=headers,
+            )
 
 
 def create_remote_player(player):
@@ -699,13 +724,79 @@ def delete_remote_player(player):
         remote_request("DELETE", f"/players/{parse.quote(player_id, safe='')}", timeout=4)
 
 
+def force_remote_disconnect(message):
+    stop_player_heartbeat()
+    player_storage["active_player_id"] = ""
+    player_storage["active_player_session"] = ""
+    player_storage["remote_enabled"] = False
+    session_state.set_forced_disconnect(message)
+    try:
+        pygame.event.post(pygame.event.Event(pygame.USEREVENT))
+    except pygame.error:
+        pass
+
+
+def heartbeat_worker(player_id, token):
+    while not heartbeat_stop_event.wait(10):
+        if (
+            not player_storage.get("remote_enabled")
+            or player_storage.get("active_player_id") != player_id
+            or player_storage.get("token") != token
+        ):
+            return
+        try:
+            remote_request(
+                "POST",
+                f"/players/{parse.quote(player_id, safe='')}/heartbeat",
+                timeout=4,
+                extra_headers={"X-Player-Session": player_storage.get("active_player_session", "")},
+            )
+        except error.HTTPError as exc:
+            if exc.code in (401, 409):
+                logger.warning("Player heartbeat rejected status={}", exc.code)
+                force_remote_disconnect("This player has signed in on another client.")
+                return
+            logger.exception("Player heartbeat HTTP error")
+        except (OSError, error.URLError, TimeoutError, json.JSONDecodeError):
+            logger.exception("Player heartbeat failed")
+
+
+def start_player_heartbeat(player_id):
+    global heartbeat_thread
+    stop_player_heartbeat()
+    if not player_id or not player_storage.get("remote_enabled"):
+        return
+    token = player_storage.get("token", "")
+    if not token:
+        return
+    heartbeat_stop_event.clear()
+    heartbeat_thread = threading.Thread(
+        target=heartbeat_worker,
+        args=(player_id, token),
+        daemon=True,
+        name="type-fighter-player-heartbeat",
+    )
+    heartbeat_thread.start()
+
+
+def stop_player_heartbeat():
+    global heartbeat_thread
+    heartbeat_stop_event.set()
+    heartbeat_thread = None
+
+
 def claim_remote_player(player):
     player_id = player.get("id") if isinstance(player, dict) else ""
     if not player_id or not player_storage.get("remote_enabled"):
         return True
     try:
-        remote_request("POST", f"/players/{parse.quote(player_id, safe='')}/claim", timeout=4)
+        result = remote_request("POST", f"/players/{parse.quote(player_id, safe='')}/claim", timeout=4)
+        player_session = result.get("player_session", "") if isinstance(result, dict) else ""
+        if not player_session:
+            raise OSError("Server did not return a player session token")
         player_storage["active_player_id"] = player_id
+        player_storage["active_player_session"] = player_session
+        start_player_heartbeat(player_id)
         return True
     except error.HTTPError as exc:
         if exc.code == 409:
@@ -716,13 +807,23 @@ def claim_remote_player(player):
 
 def release_remote_player():
     player_id = player_storage.get("active_player_id", "")
+    player_session = player_storage.get("active_player_session", "")
+    stop_player_heartbeat()
     if not player_id or not player_storage.get("remote_enabled"):
+        player_storage["active_player_id"] = ""
+        player_storage["active_player_session"] = ""
         return
     try:
-        remote_request("POST", f"/players/{parse.quote(player_id, safe='')}/release", timeout=2)
+        remote_request(
+            "POST",
+            f"/players/{parse.quote(player_id, safe='')}/release",
+            timeout=2,
+            extra_headers={"X-Player-Session": player_session} if player_session else None,
+        )
     except (OSError, error.URLError, TimeoutError, json.JSONDecodeError):
         pass
     player_storage["active_player_id"] = ""
+    player_storage["active_player_session"] = ""
 
 
 def load_players():
@@ -743,10 +844,9 @@ def save_players(players):
             save_remote_players(players)
             return
         except error.HTTPError as exc:
-            if exc.code == 409:
-                logger.warning("Remote player save conflict for active player")
-                player_storage["warning"] = "That pilot is active on another computer."
-                player_storage["active_player_id"] = ""
+            if exc.code in (401, 409):
+                logger.warning("Remote player save rejected for active player status={}", exc.code)
+                force_remote_disconnect("This player has signed in on another client.")
                 return
             logger.exception("Remote player save returned HTTP error; falling back to local players.json")
             player_storage["remote_enabled"] = False
@@ -1219,10 +1319,12 @@ def player_select_loop(screen, clock):
     scrollbar_drag_offset = 0
     dragging_scrollbar = False
     visible_rows = 1
-    ignore_hover_until_mouse_move = False
-    hover_lock_mouse_pos = None
+    first_visible = 0
+    suppress_hover_until_redraw = False
 
     while True:
+        if show_forced_disconnect_if_needed(screen, clock):
+            return "signin"
         if player_storage.get("warning"):
             warning = player_storage["warning"]
             player_storage["warning"] = ""
@@ -1281,14 +1383,12 @@ def player_select_loop(screen, clock):
                     selected = (selected + 1) % len(players)
                     play_menu_beep()
                     delete_confirm = False
-                    ignore_hover_until_mouse_move = True
-                    hover_lock_mouse_pos = pygame.mouse.get_pos()
+                    suppress_hover_until_redraw = True
                 elif event.key in (pygame.K_UP, pygame.K_w) and players:
                     selected = (selected - 1) % len(players)
                     play_menu_beep()
                     delete_confirm = False
-                    ignore_hover_until_mouse_move = True
-                    hover_lock_mouse_pos = pygame.mouse.get_pos()
+                    suppress_hover_until_redraw = True
                 elif event.key in (pygame.K_RETURN, pygame.K_SPACE) and players:
                     if claim_remote_player(players[selected]):
                         return players, players[selected]
@@ -1319,9 +1419,8 @@ def player_select_loop(screen, clock):
                     play_menu_beep()
                 delete_confirm = False
             elif event.type == pygame.MOUSEMOTION and players:
-                if ignore_hover_until_mouse_move and event.pos == hover_lock_mouse_pos:
+                if suppress_hover_until_redraw:
                     continue
-                ignore_hover_until_mouse_move = False
                 for index, rect in player_rects:
                     if rect.collidepoint(event.pos):
                         if index != selected:
@@ -1399,6 +1498,7 @@ def player_select_loop(screen, clock):
         draw_text(screen, footer, small_font, MUTED_TEXT, (text_left + 4, height - 58))
         draw_version_label(screen, small_font)
         pygame.display.flip()
+        suppress_hover_until_redraw = False
         clock.tick(60)
 
 
@@ -1422,6 +1522,14 @@ def draw_modal_button(screen, rect, text, font, enabled=True, selected=False):
     pygame.draw.rect(screen, border, rect, 2, border_radius=8)
     label = font.render(text, True, color)
     screen.blit(label, label.get_rect(center=rect.center))
+
+
+def show_forced_disconnect_if_needed(screen, clock):
+    message = session_state.consume_forced_disconnect()
+    if not message:
+        return False
+    message_modal(screen, clock, "DICONNECTED", message)
+    return True
 
 
 def message_modal(screen, clock, title, message):
@@ -2748,8 +2856,7 @@ def color_choice_modal(screen, clock, upgrade):
     selected = 0
     color_rects = []
     hovered_color_index = None
-    ignore_hover_until_mouse_move = False
-    hover_lock_mouse_pos = None
+    suppress_hover_until_redraw = False
     while True:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -2760,29 +2867,24 @@ def color_choice_modal(screen, clock, upgrade):
                 if event.key in (pygame.K_LEFT, pygame.K_a):
                     selected = (selected - 1) % len(UPGRADE_COLORS)
                     play_menu_beep()
-                    ignore_hover_until_mouse_move = True
-                    hover_lock_mouse_pos = pygame.mouse.get_pos()
+                    suppress_hover_until_redraw = True
                 if event.key in (pygame.K_RIGHT, pygame.K_d):
                     selected = (selected + 1) % len(UPGRADE_COLORS)
                     play_menu_beep()
-                    ignore_hover_until_mouse_move = True
-                    hover_lock_mouse_pos = pygame.mouse.get_pos()
+                    suppress_hover_until_redraw = True
                 if event.key in (pygame.K_UP, pygame.K_w):
                     selected = (selected - 4) % len(UPGRADE_COLORS)
                     play_menu_beep()
-                    ignore_hover_until_mouse_move = True
-                    hover_lock_mouse_pos = pygame.mouse.get_pos()
+                    suppress_hover_until_redraw = True
                 if event.key in (pygame.K_DOWN, pygame.K_s):
                     selected = (selected + 4) % len(UPGRADE_COLORS)
                     play_menu_beep()
-                    ignore_hover_until_mouse_move = True
-                    hover_lock_mouse_pos = pygame.mouse.get_pos()
+                    suppress_hover_until_redraw = True
                 if event.key in (pygame.K_RETURN, pygame.K_SPACE):
                     return UPGRADE_COLORS[selected][0]
             if event.type == pygame.MOUSEMOTION:
-                if ignore_hover_until_mouse_move and event.pos == hover_lock_mouse_pos:
+                if suppress_hover_until_redraw:
                     continue
-                ignore_hover_until_mouse_move = False
                 next_hovered_color = None
                 for index, rect in enumerate(color_rects):
                     if rect.collidepoint(event.pos):
@@ -2823,6 +2925,7 @@ def color_choice_modal(screen, clock, upgrade):
             draw_text(screen, name, small_font, TEXT_COLOR, (swatch_rect.x, swatch_rect.bottom + 6))
         draw_text(screen, "Esc cancels.", small_font, MUTED_TEXT, (rect.x + 32, rect.bottom - 40))
         pygame.display.flip()
+        suppress_hover_until_redraw = False
         clock.tick(60)
 
 
@@ -2927,13 +3030,15 @@ def menu_loop(screen, clock, players, player):
     scrollbar_drag_offset = 0
     dragging_scrollbar = False
     visible_rows = 1
-    ignore_hover_until_mouse_move = False
-    hover_lock_mouse_pos = None
+    first_visible = 0
+    suppress_hover_until_redraw = False
     pending_reward_modals = collect_new_achievement_modals(player)
     if pending_reward_modals:
         save_players(players)
 
     while True:
+        if show_forced_disconnect_if_needed(screen, clock):
+            return "signin"
         if player_storage.get("warning"):
             release_remote_player()
             return "players"
@@ -2957,21 +3062,28 @@ def menu_loop(screen, clock, players, player):
                 if event.key in (pygame.K_b, pygame.K_ESCAPE):
                     return "players"
                 if event.key in (pygame.K_DOWN, pygame.K_s):
-                    selected = (selected + 1) % len(LESSONS)
-                    play_menu_beep()
-                    ignore_hover_until_mouse_move = True
-                    hover_lock_mouse_pos = pygame.mouse.get_pos()
+                    new_selected = min(len(LESSONS) - 1, selected + 1)
+                    if new_selected != selected:
+                        selected = new_selected
+                        first_visible = keep_index_visible(selected, first_visible, len(LESSONS), visible_rows)
+                        play_menu_beep()
+                    suppress_hover_until_redraw = True
                 if event.key in (pygame.K_UP, pygame.K_w):
-                    selected = (selected - 1) % len(LESSONS)
-                    play_menu_beep()
-                    ignore_hover_until_mouse_move = True
-                    hover_lock_mouse_pos = pygame.mouse.get_pos()
+                    new_selected = max(0, selected - 1)
+                    if new_selected != selected:
+                        selected = new_selected
+                        first_visible = keep_index_visible(selected, first_visible, len(LESSONS), visible_rows)
+                        play_menu_beep()
+                    suppress_hover_until_redraw = True
                 if event.key in (pygame.K_RETURN, pygame.K_SPACE):
                     if selected < unlocked_count:
                         completed_index = selected
                         lesson_number = LESSONS[completed_index]["number"]
                         was_completed = lesson_number in set(player.get("completed_lessons", []))
                         result = run_lesson(screen, clock, LESSONS[completed_index], player)
+                        if result == "signin":
+                            show_forced_disconnect_if_needed(screen, clock)
+                            return "signin"
                         save_players(players)
                         if result == "quit":
                             return "quit"
@@ -2983,6 +3095,7 @@ def menu_loop(screen, clock, players, player):
                             )
                             save_players(players)
                             selected = min(completed_index + 1, unlocked_lesson_count(player) - 1)
+                            first_visible = keep_index_visible(selected, first_visible, len(LESSONS), visible_rows)
                         pygame.event.clear((pygame.KEYDOWN, pygame.KEYUP))
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 if scrollbar_thumb is not None and scrollbar_thumb.collidepoint(event.pos):
@@ -3008,6 +3121,9 @@ def menu_loop(screen, clock, players, player):
                             lesson_number = LESSONS[index]["number"]
                             was_completed = lesson_number in set(player.get("completed_lessons", []))
                             result = run_lesson(screen, clock, LESSONS[index], player)
+                            if result == "signin":
+                                show_forced_disconnect_if_needed(screen, clock)
+                                return "signin"
                             save_players(players)
                             if result == "quit":
                                 return "quit"
@@ -3019,6 +3135,7 @@ def menu_loop(screen, clock, players, player):
                                 )
                                 save_players(players)
                                 selected = min(index + 1, unlocked_lesson_count(player) - 1)
+                                first_visible = keep_index_visible(selected, first_visible, len(LESSONS), visible_rows)
                             pygame.event.clear((pygame.KEYDOWN, pygame.KEYUP, pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP))
                         break
             if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
@@ -3037,9 +3154,8 @@ def menu_loop(screen, clock, players, player):
                     selected = new_selected
                     play_menu_beep()
             elif event.type == pygame.MOUSEMOTION:
-                if ignore_hover_until_mouse_move and event.pos == hover_lock_mouse_pos:
+                if suppress_hover_until_redraw:
                     continue
-                ignore_hover_until_mouse_move = False
                 for index, rect in mission_rects:
                     if rect.collidepoint(event.pos):
                         if index != selected:
@@ -3049,8 +3165,11 @@ def menu_loop(screen, clock, players, player):
             if event.type == pygame.MOUSEWHEEL:
                 step, last_wheel_scroll_time = should_apply_menu_wheel(event, last_wheel_scroll_time)
                 if step:
-                    selected = (selected + step) % len(LESSONS)
-                    play_menu_beep()
+                    new_selected = max(0, min(len(LESSONS) - 1, selected + step))
+                    if new_selected != selected:
+                        selected = new_selected
+                        first_visible = keep_index_visible(selected, first_visible, len(LESSONS), visible_rows)
+                        play_menu_beep()
 
         screen = pygame.display.get_surface()
         width, height = screen.get_size()
@@ -3086,7 +3205,7 @@ def menu_loop(screen, clock, players, player):
         list_top = 265
         item_gap = 110
         visible_rows = max(1, (height - list_top - 92) // item_gap)
-        first_visible = max(0, min(selected - visible_rows + 1, len(LESSONS) - visible_rows))
+        first_visible = keep_index_visible(selected, first_visible, len(LESSONS), visible_rows)
         list_height = visible_rows * item_gap - 24
         list_width = content_width - 24 if len(LESSONS) > visible_rows else content_width
         mission_rects = []
@@ -3152,6 +3271,7 @@ def menu_loop(screen, clock, players, player):
             pygame.event.clear((pygame.KEYDOWN, pygame.KEYUP, pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP))
             continue
         pygame.display.flip()
+        suppress_hover_until_redraw = False
         clock.tick(60)
 
 
@@ -3211,6 +3331,11 @@ def main():
             release_remote_player()
             if result == "quit":
                 break
+            if result == "signin":
+                storage_result = configure_player_storage(screen, clock)
+                if storage_result == "quit":
+                    break
+                continue
     except Exception:
         logger.exception("Fatal client error")
         raise

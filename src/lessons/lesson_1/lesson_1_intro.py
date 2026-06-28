@@ -2,6 +2,7 @@ from pathlib import Path
 import wave
 
 import pygame
+import session_state
 
 from lessons.key_render import inline_text_width, render_inline_center, render_inline_text
 
@@ -145,6 +146,9 @@ def run(screen, clock, base_dir):
     last_text_width = None
 
     while True:
+        if session_state.has_forced_disconnect():
+            stop_audio()
+            return "signin"
         dt = clock.tick(60) / 1000
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
