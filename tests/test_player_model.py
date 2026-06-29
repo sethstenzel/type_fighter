@@ -13,6 +13,7 @@ from player_model import (
     achievement_requirements_met,
     create_player_record,
     mission_stats_are_perfect,
+    normalize_mission_settings,
     normalize_pod_upgrades,
     player_credits,
     player_rank,
@@ -94,6 +95,29 @@ class PlayerModelTests(unittest.TestCase):
         player = create_player_record("Pilot", purchased_upgrade_ids=["defense_drone"])
 
         self.assertTrue(has_upgrade(player, "defense_drone"))
+
+    def test_mission_settings_are_normalized_and_clamped(self):
+        settings = normalize_mission_settings(
+            {
+                "disable_defense_drones": 1,
+                "disable_mega_shot": True,
+                "disable_shields": False,
+                "spawn_rate_multiplier": 2.13,
+                "music_enabled": 0,
+            }
+        )
+
+        self.assertTrue(settings["disable_defense_drones"])
+        self.assertTrue(settings["disable_mega_shot"])
+        self.assertFalse(settings["disable_shields"])
+        self.assertEqual(settings["spawn_rate_multiplier"], 2.2)
+        self.assertFalse(settings["music_enabled"])
+
+    def test_player_record_includes_default_mission_settings(self):
+        player = create_player_record("Pilot")
+
+        self.assertEqual(player["mission_settings"]["spawn_rate_multiplier"], 1.0)
+        self.assertTrue(player["mission_settings"]["music_enabled"])
 
     def test_perfect_lesson_requires_no_damage_and_100_percent_accuracy(self):
         stats = {

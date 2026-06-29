@@ -5,6 +5,13 @@ from game_config import ACHIEVEMENTS, UPGRADE_CATALOG
 
 
 DEFAULT_POD = {"color": "blue", "type": "standard", "upgrades": []}
+DEFAULT_MISSION_SETTINGS = {
+    "disable_defense_drones": False,
+    "disable_mega_shot": False,
+    "disable_shields": False,
+    "spawn_rate_multiplier": 1.0,
+    "music_enabled": True,
+}
 PLAYER_SHIELD_BASE_CHARGES = 3
 CONSUMABLE_UPGRADE_IDS = {"extra_life", "shield_charge", "shield_charge_3"}
 SINGLE_ENTRY_UPGRADE_IDS = {"drone_splash_color", "ammo_charge_color"}
@@ -108,6 +115,22 @@ def normalize_achievement_awards(values):
     return {achievement_id: True for achievement_id in normalize_string_list(values)}
 
 
+def normalize_mission_settings(settings):
+    if not isinstance(settings, dict):
+        settings = {}
+    normalized = dict(DEFAULT_MISSION_SETTINGS)
+    for key in ("disable_defense_drones", "disable_mega_shot", "disable_shields", "music_enabled"):
+        if key in settings:
+            normalized[key] = bool(settings[key])
+    try:
+        multiplier = float(settings.get("spawn_rate_multiplier", normalized["spawn_rate_multiplier"]))
+    except (TypeError, ValueError):
+        multiplier = normalized["spawn_rate_multiplier"]
+    multiplier = round(multiplier / 0.2) * 0.2
+    normalized["spawn_rate_multiplier"] = max(1.0, min(3.0, round(multiplier, 1)))
+    return normalized
+
+
 def normalized_achievement_ids(values):
     return {
         achievement_id
@@ -149,6 +172,7 @@ def create_player_record(
     sold_lives=0,
     sold_shields=0,
     player_id=None,
+    mission_settings=None,
 ):
     pod = dict(DEFAULT_POD if pod is None else pod)
     pod_upgrades = normalize_pod_upgrades(pod.get("upgrades", []))
@@ -178,6 +202,7 @@ def create_player_record(
         "credits": max(0, int(credits or 0)),
         "perfect_lessons": normalize_lesson_number_list(perfect_lessons),
         "last_mission_stats": last_mission_stats if isinstance(last_mission_stats, dict) else {},
+        "mission_settings": normalize_mission_settings(mission_settings),
         "pod": {
             "color": str(pod.get("color", "blue")),
             "type": str(pod.get("type", "standard")),

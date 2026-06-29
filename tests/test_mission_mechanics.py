@@ -13,8 +13,10 @@ from lessons.mission_engine import (
     MEGA_DRONE_HP,
     accuracy_thresholds_for_lesson,
     defense_drone_remaining_shot_capacity,
+    event_to_lesson_key,
     mega_charge_required_for_target,
     mega_damage_for_target,
+    mission_target_keys,
     player_defense_drone_count,
     queue_shot_at,
     queue_mega_shot,
@@ -134,6 +136,21 @@ class MissionMechanicsTests(unittest.TestCase):
 
         drone.incoming_defense_damage = 1
         self.assertEqual(defense_drone_remaining_shot_capacity(drone), 2)
+
+    def test_shift_is_target_key_before_shifted_symbol_missions(self):
+        event = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_LSHIFT, unicode="")
+
+        self.assertEqual(event_to_lesson_key(event, 26), "shift")
+        self.assertIn("shift", mission_target_keys(("shift", "a", "!"), 26, mega_available=True))
+
+    def test_shift_becomes_modifier_for_shifted_symbol_missions(self):
+        shift_event = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_LSHIFT, unicode="")
+        symbol_event = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_1, unicode="!")
+
+        self.assertIsNone(event_to_lesson_key(shift_event, 27))
+        self.assertEqual(event_to_lesson_key(symbol_event, 27), "!")
+        self.assertNotIn("shift", mission_target_keys(("shift", "a", "!"), 27, mega_available=True))
+        self.assertIn("!", mission_target_keys(("shift", "a", "!"), 27, mega_available=True))
 
 
 if __name__ == "__main__":

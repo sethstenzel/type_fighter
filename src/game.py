@@ -44,6 +44,7 @@ from player_model import (
     mission_stats_are_perfect,
     normalize_achievement_awards,
     normalize_lesson_number_list,
+    normalize_mission_settings,
     normalize_pod_upgrades,
     normalize_string_list,
     normalized_achievement_ids,
@@ -468,6 +469,7 @@ def normalize_players(data):
                 credits=item.get("credits", 0),
                 perfect_lessons=item.get("perfect_lessons", []),
                 last_mission_stats=item.get("last_mission_stats", {}),
+                mission_settings=item.get("mission_settings", {}),
                 pod=item.get("pod", {}),
             )
         )
@@ -842,6 +844,7 @@ def create_player_record(
     credits=0,
     perfect_lessons=None,
     last_mission_stats=None,
+    mission_settings=None,
     pod=None,
 ):
     if not isinstance(lifetime_score, int):
@@ -884,6 +887,7 @@ def create_player_record(
         "credits": max(0, credits),
         "perfect_lessons": normalize_lesson_number_list(perfect_lessons),
         "last_mission_stats": last_mission_stats if isinstance(last_mission_stats, dict) else {},
+        "mission_settings": normalize_mission_settings(mission_settings),
         "pod": {
             "color": pod_color,
             "type": pod_type,
@@ -1057,11 +1061,9 @@ def player_select_loop(screen, clock):
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_F11:
                     screen = toggle_fullscreen()
-                elif event.key in (pygame.K_q, pygame.K_e):
+                elif event.key == pygame.K_q:
                     return "quit"
-                elif event.key == pygame.K_b:
-                    return return_to_signin()
-                elif event.key == pygame.K_o and player_storage.get("remote_enabled"):
+                elif event.key == pygame.K_l:
                     return return_to_signin()
                 elif event.key == pygame.K_p and player_storage.get("remote_enabled"):
                     result = change_password_modal(screen, clock)
@@ -1204,9 +1206,9 @@ def player_select_loop(screen, clock):
         if delete_confirm and players:
             message = f"Delete {players[selected]['name']}? Press Y to confirm or N to cancel."
             draw_text(screen, message, small_font, (245, 203, 92), (text_left + 4, height - 88))
-        footer = "Enter/␣: Select  |  N: New  |  Delete: Delete  |  B: Login  |  Q/E: Quit"
+        footer = "Enter/␣: Select  |  N: New  |  Delete: Delete  |  L: Login  |  Q: Quit"
         if player_storage.get("remote_enabled"):
-            footer = "Enter / ␣: Select  |  N: New  |  P: Password  |  B / O: Sign out  |  Q / E: Quit"
+            footer = "Enter / ␣: Select  |  N: New  |  P: Password  |  L: Logout  |  Q: Quit"
         draw_text(screen, footer, small_font, MUTED_TEXT, (text_left + 4, height - 58))
         draw_version_label(screen, small_font)
         pygame.display.flip()
@@ -2702,10 +2704,30 @@ def menu_loop(screen, clock, players, player):
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_F11:
                     screen = toggle_fullscreen()
-                if event.key in (pygame.K_q, pygame.K_e):
+                if event.key == pygame.K_q:
                     return "quit"
-                if event.key in (pygame.K_b, pygame.K_ESCAPE):
+                if event.key == pygame.K_ESCAPE:
                     return "players"
+                if event.key == pygame.K_o:
+                    unlocked_lesson = max(1, unlocked_count)
+                    unlocks = {
+                        "disable_defense_drones": mission_engine.player_defense_drone_count(player) > 0,
+                        "disable_mega_shot": mission_engine.player_mega_shot_available(player, unlocked_lesson),
+                        "disable_shields": mission_engine.player_shield_available(player, unlocked_lesson),
+                        "music_enabled": True,
+                    }
+                    result = mission_engine.mission_settings_modal(
+                        screen,
+                        clock,
+                        player,
+                        mission_engine.player_mission_settings(player),
+                        unlocks,
+                    )
+                    save_players(players)
+                    if result == "quit":
+                        return "quit"
+                    pygame.event.clear((pygame.KEYDOWN, pygame.KEYUP, pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP))
+                    continue
                 if event.key in (pygame.K_DOWN, pygame.K_s):
                     new_selected = min(len(LESSONS) - 1, selected + 1)
                     if new_selected != selected:
@@ -2907,7 +2929,7 @@ def menu_loop(screen, clock, players, player):
         if scrollbar_thumb is None:
             dragging_scrollbar = False
 
-        draw_text(screen, "B/Esc: Players  |  F11: Max size  |  Q/E: Quit", small_font, MUTED_TEXT, (text_left + 4, height - 58))
+        draw_text(screen, "O: Options  |  Esc: Players  |  F11: Max size  |  Q: Quit", small_font, MUTED_TEXT, (text_left + 4, height - 58))
         draw_version_label(screen, small_font)
         if pending_reward_modals:
             result = show_reward_modal_queue(screen, clock, pending_reward_modals)

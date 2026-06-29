@@ -517,7 +517,12 @@ def draw_scrollable_text(surface, text, font, color, rect, scroll_y, line_spacin
     return max_scroll, track_rect, thumb_rect
 
 
-def event_to_lesson_key(event):
+SHIFTED_SYMBOL_START_LESSON = 27
+
+
+def event_to_lesson_key(event, lesson_number=1):
+    if lesson_number >= SHIFTED_SYMBOL_START_LESSON and event.key in (pygame.K_LSHIFT, pygame.K_RSHIFT):
+        return None
     if event.key in SPECIAL_KEY_LABELS:
         return SPECIAL_KEY_LABELS[event.key]
     event_unicode = getattr(event, "unicode", "")
@@ -587,6 +592,7 @@ def mission_target_keys(valid_keys, lesson_number, mega_available=False):
         key
         for key in valid_keys
         if not ((mega_shot_enabled(lesson_number) or mega_available) and key == "space")
+        and not (lesson_number >= SHIFTED_SYMBOL_START_LESSON and key == "shift")
     )
 
 
@@ -601,6 +607,39 @@ def player_shield_available(player, lesson_number):
         return False
     completed = set(player.get("completed_lessons", []))
     return all(number in completed for number in range(1, PLAYER_SHIELD_START_LESSON))
+
+
+DEFAULT_MISSION_SETTINGS = {
+    "disable_defense_drones": False,
+    "disable_mega_shot": False,
+    "disable_shields": False,
+    "spawn_rate_multiplier": 1.0,
+    "music_enabled": True,
+}
+
+
+def normalize_mission_settings(settings):
+    if not isinstance(settings, dict):
+        settings = {}
+    normalized = dict(DEFAULT_MISSION_SETTINGS)
+    for key in ("disable_defense_drones", "disable_mega_shot", "disable_shields", "music_enabled"):
+        if key in settings:
+            normalized[key] = bool(settings[key])
+    try:
+        multiplier = float(settings.get("spawn_rate_multiplier", normalized["spawn_rate_multiplier"]))
+    except (TypeError, ValueError):
+        multiplier = normalized["spawn_rate_multiplier"]
+    multiplier = round(multiplier / 0.2) * 0.2
+    normalized["spawn_rate_multiplier"] = max(1.0, min(3.0, round(multiplier, 1)))
+    return normalized
+
+
+def player_mission_settings(player):
+    if not isinstance(player, dict):
+        return dict(DEFAULT_MISSION_SETTINGS)
+    settings = normalize_mission_settings(player.get("mission_settings", {}))
+    player["mission_settings"] = settings
+    return settings
 
 
 def player_upgrade_ids(player):
@@ -1741,6 +1780,134 @@ def draw_button(surface, rect, text, font, selected=False):
     surface.blit(label, label.get_rect(center=rect.center))
 
 
+def draw_checkbox(surface, rect, checked, enabled=True):
+    border = ACCENT if enabled else (70, 76, 92)
+    fill = (18, 30, 55) if enabled else (16, 18, 26)
+    pygame.draw.rect(surface, fill, rect, border_radius=4)
+    pygame.draw.rect(surface, border, rect, 2, border_radius=4)
+    if checked:
+        color = TEXT_COLOR if enabled else MUTED_TEXT
+        pygame.draw.line(surface, color, (rect.x + 5, rect.centery), (rect.x + 11, rect.bottom - 6), 3)
+        pygame.draw.line(surface, color, (rect.x + 11, rect.bottom - 6), (rect.right - 5, rect.y + 6), 3)
+
+
+def draw_mission_settings_modal(screen, settings, unlocks, controls, title_font, body_font, small_font):
+    width, height = screen.get_size()
+    overlay = pygame.Surface((width, height), pygame.SRCALPHA)
+    overlay.fill((2, 5, 13, 210))
+    screen.blit(overlay, (0, 0))
+    modal_rect = pygame.Rect(0, 0, min(680, width - 80), min(560, height - 54))
+    modal_rect.center = (width / 2, height / 2)
+    pygame.draw.rect(screen, (10, 18, 34), modal_rect, border_radius=8)
+    pygame.draw.rect(screen, ACCENT, modal_rect, 2, border_radius=8)
+    title = title_font.render("MISSION OPTIONS", True, TEXT_COLOR)
+    screen.blit(title, (modal_rect.x + 30, modal_rect.y + 26))
+
+    rows = (
+        ("disable_defense_drones", "Disable Defense Drones", "Requires at least one defense drone."),
+        ("disable_mega_shot", "Disable Power Shot", "Requires Mega Shot to be unlocked."),
+        ("disable_shields", "Disable Shields", "Requires shields to be unlocked."),
+        ("music_enabled", "Music Loop", ""),
+    )
+    controls.clear()
+    row_y = modal_rect.y + 102
+    for key, label, locked_text in rows:
+        enabled = unlocks.get(key, True)
+        rect = pygame.Rect(modal_rect.x + 34, row_y + 3, 26, 26)
+        controls[key] = rect
+        checked = bool(settings[key])
+        draw_checkbox(screen, rect, checked, enabled)
+        text_color = TEXT_COLOR if enabled else MUTED_TEXT
+        label_surface = body_font.render(label, True, text_color)
+        screen.blit(label_surface, (rect.right + 14, row_y))
+        if not enabled and locked_text:
+            locked_surface = small_font.render(locked_text, True, (104, 112, 134))
+            screen.blit(locked_surface, (rect.right + 16, row_y + 28))
+        row_y += 58
+
+    slider_y = row_y + 42
+    slider_label = body_font.render(f"Spawn Rate: {settings['spawn_rate_multiplier']:.1f}x", True, TEXT_COLOR)
+    screen.blit(slider_label, (modal_rect.x + 34, slider_y - 42))
+    track_rect = pygame.Rect(modal_rect.x + 38, slider_y, modal_rect.width - 168, 8)
+    pygame.draw.rect(screen, (43, 57, 89), track_rect, border_radius=4)
+    normalized = (settings["spawn_rate_multiplier"] - 1.0) / 2.0
+    knob_x = track_rect.x + int(track_rect.width * normalized)
+    knob_rect = pygame.Rect(0, 0, 22, 34)
+    knob_rect.center = (knob_x, track_rect.centery)
+    pygame.draw.rect(screen, ACCENT, knob_rect, border_radius=6)
+    controls["spawn_rate_track"] = track_rect
+    controls["spawn_rate_knob"] = knob_rect
+    min_label = small_font.render("1x", True, MUTED_TEXT)
+    max_label = small_font.render("3x", True, MUTED_TEXT)
+    screen.blit(min_label, (track_rect.x, track_rect.bottom + 12))
+    screen.blit(max_label, (track_rect.right - max_label.get_width(), track_rect.bottom + 12))
+
+    close_rect = pygame.Rect(modal_rect.right - 164, modal_rect.bottom - 64, 130, 42)
+    controls["close"] = close_rect
+    draw_button(screen, close_rect, "Done", body_font, True)
+    hint = small_font.render("Click checkboxes, drag/click slider, or press Esc/O to close.", True, MUTED_TEXT)
+    screen.blit(hint, (modal_rect.x + 34, modal_rect.bottom - 50))
+
+
+def set_spawn_rate_from_mouse(settings, track_rect, mouse_x):
+    if track_rect.width <= 0:
+        return
+    ratio = max(0, min(1, (mouse_x - track_rect.x) / track_rect.width))
+    value = 1.0 + ratio * 2.0
+    settings["spawn_rate_multiplier"] = max(1.0, min(3.0, round(round(value / 0.2) * 0.2, 1)))
+
+
+def save_mission_settings(player, settings):
+    if isinstance(player, dict):
+        player["mission_settings"] = dict(settings)
+
+
+def mission_settings_modal(screen, clock, player, settings, unlocks):
+    title_font = pygame.font.SysFont("arial", 40, bold=True)
+    body_font = pygame.font.SysFont("arial", 23)
+    small_font = pygame.font.SysFont("arial", 16)
+    controls = {}
+    dragging_slider = False
+    background = screen.copy()
+    while True:
+        screen = pygame.display.get_surface()
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return "quit"
+            if event.type == pygame.VIDEORESIZE:
+                screen = enforce_min_window_size(screen)
+            if event.type == pygame.KEYDOWN:
+                if event.key in (pygame.K_ESCAPE, pygame.K_o, pygame.K_RETURN, pygame.K_SPACE):
+                    return None
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if controls.get("close") and controls["close"].collidepoint(event.pos):
+                    return None
+                if controls.get("spawn_rate_track") and controls["spawn_rate_track"].collidepoint(event.pos):
+                    set_spawn_rate_from_mouse(settings, controls["spawn_rate_track"], event.pos[0])
+                    save_mission_settings(player, settings)
+                    dragging_slider = True
+                    continue
+                if controls.get("spawn_rate_knob") and controls["spawn_rate_knob"].collidepoint(event.pos):
+                    dragging_slider = True
+                    continue
+                for key in ("disable_defense_drones", "disable_mega_shot", "disable_shields", "music_enabled"):
+                    rect = controls.get(key)
+                    if rect is not None and rect.collidepoint(event.pos) and unlocks.get(key, True):
+                        settings[key] = not settings[key]
+                        save_mission_settings(player, settings)
+                        break
+            if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+                dragging_slider = False
+            if event.type == pygame.MOUSEMOTION and dragging_slider and controls.get("spawn_rate_track"):
+                set_spawn_rate_from_mouse(settings, controls["spawn_rate_track"], event.pos[0])
+                save_mission_settings(player, settings)
+
+        screen.blit(background, (0, 0))
+        draw_mission_settings_modal(screen, settings, unlocks, controls, title_font, body_font, small_font)
+        pygame.display.flip()
+        clock.tick(60)
+
+
 def load_mission_hint_images(lesson_dir, lesson_number):
     hint_images = []
     for index in range(1, 4):
@@ -1906,11 +2073,14 @@ class MissionEngine:
         self.player_splash_color = player_upgrade_color(player, "drone_splash_color")
         self.shot_charge_color = player_upgrade_color(player, "ammo_charge_color")
         self.shot_trail_color = player_splash_rgb(self.shot_charge_color)
-        self.player_mega_shot_available = player_mega_shot_available(player, self.lesson_number)
+        self.mission_settings = player_mission_settings(player)
+        self.raw_mega_shot_available = player_mega_shot_available(player, self.lesson_number)
+        self.raw_shields_available = player_shield_available(player, self.lesson_number)
+        self.player_mega_shot_available = False
         self.player_advanced_mega_shot_available = player_advanced_mega_shot_available(player, self.lesson_number)
-        self.player_shields_available = player_shield_available(player, self.lesson_number)
+        self.player_shields_available = False
         self.max_shield_charges = player_shield_max_charges(player)
-        self.target_keys = mission_target_keys(valid_keys, self.lesson_number, self.player_mega_shot_available)
+        self.target_keys = tuple(valid_keys)
         self.focus_keys = lesson_focus_keys(self.lesson_number, self.target_keys)
         self.drone_target = lesson_drone_target(self.lesson_number)
         self.mini_boss_numbers = mini_boss_numbers_for_lesson(self.lesson_number, self.drone_target)
@@ -1934,7 +2104,7 @@ class MissionEngine:
             0.8,
         )
         self.bg_music = load_sound(bg_music_path(self.sfx_dir, self.lesson_number), BG_MUSIC_VOLUME)
-        self.bg_music_channel = play_looping_sound(self.bg_music, BG_MUSIC_FADE_IN_MS)
+        self.bg_music_channel = None
         self.boss_music = load_sound(self.sfx_dir / "boss_music.wav", BOSS_MUSIC_VOLUME)
         self.boss_music_channel = None
         self.turret_image = load_pod_variant_image(self.pod_gfx_dir, "turret", self.player_splash_color)
@@ -1976,16 +2146,7 @@ class MissionEngine:
         self.drones = []
         self.bullets = []
         self.mega_shots = []
-        defense_drone_count = player_defense_drone_count(player)
-        defense_fire_stagger_ms = DEFENSE_DRONE_FIRE_INTERVAL_MS / max(1, defense_drone_count)
-        defense_fire_start_time = pygame.time.get_ticks()
-        self.defense_drones = [
-            DefenseDrone(
-                angle=index * math.tau / max(1, defense_drone_count),
-                next_fire_time=int(defense_fire_start_time + defense_fire_stagger_ms * (index + 1)),
-            )
-            for index in range(defense_drone_count)
-        ]
+        self.defense_drones = []
         self.defense_shots = []
         self.pending_shots = []
         self.shot_trails = []
@@ -2025,14 +2186,93 @@ class MissionEngine:
         self.space_held = False
         self.mega_charge_blocks = MEGA_CHARGE_MAX_BLOCKS
         self.next_mega_recharge_time = 0
-        self.current_spawn_interval_ms = random_spawn_interval(self.lesson_number)
+        self.current_spawn_interval_ms = self._spawn_interval()
         self.next_spawn_rate_change_time = pygame.time.get_ticks() + SPAWN_RATE_CHANGE_MS
         self.next_spawn_time = pygame.time.get_ticks()
         self.next_power_up_spawn_time = next_power_up_time(self.next_spawn_time)
+        self._apply_mission_settings(rebuild_defense_drones=True)
 
     @property
     def final_boss(self):
         return self.final_bosses[0] if self.final_bosses else None
+
+    def _settings_unlocks(self):
+        return {
+            "disable_defense_drones": player_defense_drone_count(self.player) > 0,
+            "disable_mega_shot": self.raw_mega_shot_available,
+            "disable_shields": self.raw_shields_available,
+            "music_enabled": True,
+        }
+
+    def _spawn_interval(self):
+        multiplier = max(1.0, float(self.mission_settings.get("spawn_rate_multiplier", 1.0)))
+        return max(80, int(random_spawn_interval(self.lesson_number) / multiplier))
+
+    def _create_defense_drones(self):
+        if self.mission_settings.get("disable_defense_drones") and self._settings_unlocks()["disable_defense_drones"]:
+            return []
+        defense_drone_count = player_defense_drone_count(self.player)
+        if defense_drone_count <= 0:
+            return []
+        fire_stagger_ms = DEFENSE_DRONE_FIRE_INTERVAL_MS / defense_drone_count
+        start_time = pygame.time.get_ticks()
+        return [
+            DefenseDrone(
+                angle=index * math.tau / defense_drone_count,
+                next_fire_time=int(start_time + fire_stagger_ms * (index + 1)),
+            )
+            for index in range(defense_drone_count)
+        ]
+
+    def _apply_mission_settings(self, rebuild_defense_drones=False):
+        self.mission_settings = player_mission_settings(self.player)
+        unlocks = self._settings_unlocks()
+        mega_disabled = self.mission_settings.get("disable_mega_shot") and unlocks["disable_mega_shot"]
+        shields_disabled = self.mission_settings.get("disable_shields") and unlocks["disable_shields"]
+        defense_disabled = self.mission_settings.get("disable_defense_drones") and unlocks["disable_defense_drones"]
+
+        self.player_mega_shot_available = self.raw_mega_shot_available and not mega_disabled
+        self.player_shields_available = self.raw_shields_available and not shields_disabled
+        self.max_shield_charges = player_shield_max_charges(self.player) if self.player_shields_available else 0
+        if self.player_shields_available and self.max_shield_charges > 0 and self.shield_charges <= 0:
+            self.shield_charges = 1
+        self.target_keys = mission_target_keys(self.valid_keys, self.lesson_number, self.player_mega_shot_available)
+        if mega_disabled and "space" not in self.target_keys:
+            self.target_keys = tuple(self.target_keys) + ("space",)
+        self.focus_keys = lesson_focus_keys(self.lesson_number, self.target_keys)
+
+        if mega_disabled:
+            self.space_held = False
+            self.mega_shots.clear()
+            self.mega_charge_blocks = 0
+            self.next_mega_recharge_time = 0
+        elif self.mega_charge_blocks <= 0:
+            self.mega_charge_blocks = MEGA_CHARGE_MAX_BLOCKS
+
+        if shields_disabled:
+            self._clear_active_shield()
+            if self.power_up is not None and self.power_up.kind == "shield":
+                self.power_up = None
+                self.next_power_up_spawn_time = next_power_up_time(pygame.time.get_ticks())
+        elif self.shield_charges > self.max_shield_charges:
+            self.shield_charges = self.max_shield_charges
+
+        if defense_disabled:
+            self.defense_drones.clear()
+            for shot in self.defense_shots:
+                if shot.target is not None:
+                    shot.target.incoming_defense_damage = max(0, shot.target.incoming_defense_damage - 1)
+            self.defense_shots.clear()
+        elif rebuild_defense_drones or not self.defense_drones:
+            self.defense_drones = self._create_defense_drones()
+
+        if not self.mission_settings.get("music_enabled", True):
+            self._stop_all_music(BG_MUSIC_FADE_OUT_MS)
+        elif self.bg_music_channel is None and self.boss_music_channel is None:
+            if self.final_bosses:
+                self._start_boss_music()
+            else:
+                self.bg_music_channel = play_looping_sound(self.bg_music, BG_MUSIC_FADE_IN_MS)
 
     def _run_mission_briefing(self):
         play_audio(self.instructions_audio_path)
@@ -2142,7 +2382,8 @@ class MissionEngine:
         if self.player is None:
             return
         self.player["lives"] = max(1, min(player_limits.MAX_PLAYER_LIVES, self.lives))
-        self.player["shield_charges"] = max(0, min(self.max_shield_charges, self.shield_charges))
+        if self.player_shields_available:
+            self.player["shield_charges"] = max(0, min(self.max_shield_charges, self.shield_charges))
 
     def _add_lifetime_score(self):
         if self.player is None:
@@ -2208,6 +2449,8 @@ class MissionEngine:
         self.boss_music_channel = None
 
     def _start_boss_music(self):
+        if not self.mission_settings.get("music_enabled", True):
+            return
         stop_looping_sound(self.bg_music_channel, BG_MUSIC_FADE_OUT_MS)
         self.bg_music_channel = None
         if self.boss_music_channel is None or not self.boss_music_channel.get_busy():
@@ -2385,7 +2628,7 @@ class MissionEngine:
         self._update_player_center(dt)
         self.pod_rotation = (self.pod_rotation + math.tau * dt / POD_ROTATION_SECONDS) % math.tau
         if now >= self.next_spawn_rate_change_time:
-            self.current_spawn_interval_ms = random_spawn_interval(self.lesson_number)
+            self.current_spawn_interval_ms = self._spawn_interval()
             self.next_spawn_rate_change_time = now + SPAWN_RATE_CHANGE_MS
         update_star_field(self.stars, dt)
         self._update_accuracy_recharge(now)
@@ -2487,7 +2730,7 @@ class MissionEngine:
                 self.screen,
                 self.target_keys,
                 now,
-                player_shield_enabled(self.lesson_number),
+                self.player_shields_available,
                 self.shield_charges,
                 self.max_shield_charges,
                 self.life_power_ups_spawned < MAX_LIFE_POWER_UPS_PER_MISSION,
@@ -2590,6 +2833,10 @@ class MissionEngine:
             shield_center_x,
         )
         draw_hud(self.screen, self.font, min(self.destroyed, self.drone_target), self.drone_target, self.score, self.lives)
+        footer_font = pygame.font.SysFont("arial", 18)
+        footer_text = "O: Options  |  Esc: Pause  |  F11: Max size"
+        footer_surface = footer_font.render(footer_text, True, MUTED_TEXT)
+        self.screen.blit(footer_surface, footer_surface.get_rect(center=(width / 2, height - 28)))
 
         if present:
             pygame.display.flip()
@@ -2817,6 +3064,24 @@ class MissionEngine:
                     started_space_charge = False
                     if event.key == pygame.K_F11:
                         self.screen = toggle_fullscreen()
+                    if event.key == pygame.K_o:
+                        pygame.mouse.set_visible(True)
+                        settings_started_at = pygame.time.get_ticks()
+                        settings_result = mission_settings_modal(
+                            self.screen,
+                            self.clock,
+                            self.player,
+                            self.mission_settings,
+                            self._settings_unlocks(),
+                        )
+                        self._shift_gameplay_timers(pygame.time.get_ticks() - settings_started_at)
+                        self._apply_mission_settings()
+                        pygame.mouse.set_visible(False)
+                        pygame.event.clear((pygame.KEYDOWN, pygame.KEYUP, pygame.MOUSEBUTTONDOWN))
+                        if settings_result == "quit":
+                            stop_audio()
+                            return self._finish("quit")
+                        continue
                     if event.key == pygame.K_ESCAPE:
                         pygame.mouse.set_visible(True)
                         if self.bg_music_channel is not None:
@@ -2845,7 +3110,7 @@ class MissionEngine:
                         if pause_result == "restart":
                             return self._finish("restart")
                         return self._finish("menu")
-                    pressed_key = event_to_lesson_key(event)
+                    pressed_key = event_to_lesson_key(event, self.lesson_number)
                     if self.player_mega_shot_available and event.key == pygame.K_SPACE:
                         self.space_held = True
                         started_space_charge = True
