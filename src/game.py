@@ -6,9 +6,7 @@ from pathlib import Path
 import random
 import re
 import sys
-import threading
 import uuid
-from urllib import error, parse, request
 
 import pygame
 from loguru import logger
@@ -26,8 +24,16 @@ from lessons.key_render import render_inline_text, render_key_label
 from lessons import mission_engine
 from lessons.mission_engine import create_star_field, draw_star_field, update_star_field
 import player_limits
-import session_state
-from game_config import ACHIEVEMENTS, GAME_SETTINGS, UPGRADE_CATALOG, load_cached_config, save_cached_config, apply_config
+import player_storage_sqlite
+from game_config import (
+    ACHIEVEMENTS,
+    GAME_SETTINGS,
+    UPGRADE_CATALOG,
+    apply_config,
+    load_game_data_db,
+    save_game_data_db,
+)
+import user_settings
 from player_model import (
     DEFAULT_POD,
     UPGRADE_COLORS,
@@ -85,28 +91,17 @@ def app_base_dir():
 
 
 BASE_DIR = app_base_dir()
-PLAYERS_PATH = BASE_DIR / "players.json" if running_as_frozen_app() else BASE_DIR.parent / "players.json"
-APP_CONFIG_DIR = BASE_DIR if running_as_frozen_app() else BASE_DIR.parent
-SETTINGS_PATH = BASE_DIR / "settings.cfg"
-SESSION_CACHE_PATH = APP_CONFIG_DIR / "type_fighter_session.json"
-AUTH_PREFS_PATH = APP_CONFIG_DIR / "type_fighter_auth_prefs.cfg"
-GAME_CONFIG_CACHE_PATH = APP_CONFIG_DIR / "type_fighter_game_config.json"
+APP_CONFIG_DIR = player_storage_sqlite.user_data_dir()
+APP_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+PLAYERS_PATH = APP_CONFIG_DIR / "players.json"
+GAME_DATA_DB_PATH = APP_CONFIG_DIR / "game_data.db"
 is_fullscreen = True
 ui_image_cache = {}
 ui_sound_cache = {}
 menu_music_channel = None
-heartbeat_thread = None
-heartbeat_stop_event = threading.Event()
 player_storage = {
-    "remote_enabled": False,
     "server_url": "",
-    "token": "",
-    "account": None,
-    "save_login": False,
-    "active_player_id": "",
-    "active_player_session": "",
     "warning": "",
-    "offline_warning": "",
 }
 
 
@@ -117,20 +112,6 @@ def apply_game_settings():
     set_player_shield_base_charges(PLAYER_SHIELD_MAX_CHARGES)
     player_limits.MAX_PLAYER_LIVES = max(STARTING_LIVES, int(GAME_SETTINGS["max_player_lives"]))
     mission_engine.apply_game_settings(GAME_SETTINGS)
-
-
-def return_to_signin():
-    if player_storage.get("remote_enabled"):
-        try:
-            remote_request("POST", "/auth/logout", timeout=2)
-        except (OSError, error.URLError, TimeoutError, json.JSONDecodeError):
-            pass
-    player_storage["remote_enabled"] = False
-    player_storage["token"] = ""
-    player_storage["account"] = None
-    player_storage["offline_warning"] = ""
-    clear_session_cache()
-    return "signin"
 
 
 def logging_enabled():
@@ -177,6 +158,16 @@ LESSONS = [
 
 def draw_text(surface, text, font, color, pos):
     render_inline_text(surface, text, font, color, pos)
+
+
+def draw_version_label(surface, font):
+    width, height = surface.get_size()
+    label = f"v{CLIENT_VERSION}"
+    warning = player_storage.get("warning", "")
+    if warning:
+        label = f"{label}  |  {warning}"
+    text = font.render(label, True, MUTED_TEXT)
+    surface.blit(text, text.get_rect(bottomright=(width - 18, height - 18)))
 
 
 def scrollbar_thumb_rect(track_rect, total_items, visible_items, first_visible):
@@ -471,6 +462,8 @@ def normalize_players(data):
                 last_mission_stats=item.get("last_mission_stats", {}),
                 mission_settings=item.get("mission_settings", {}),
                 pod=item.get("pod", {}),
+                updated_at=item.get("updated_at", ""),
+                game_version=item.get("game_version", CLIENT_VERSION),
             )
         )
         seen_names.add(name.lower())
@@ -478,355 +471,20 @@ def normalize_players(data):
 
 
 def load_local_players():
-    try:
-        data = json.loads(PLAYERS_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return []
-    return normalize_players(data)
+    return normalize_players(player_storage_sqlite.load_player_dbs())
 
 
 def save_local_players(players):
-    PLAYERS_PATH.write_text(json.dumps(players, indent=2), encoding="utf-8")
-
-
-def read_settings_file(path):
-    values = {}
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return values
-    for line in lines:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        key, value = stripped.split("=", 1)
-        values[key.strip()] = value.strip().strip('"').strip("'")
-    return values
-
-
-def configured_server_url():
-    settings = read_settings_file(SETTINGS_PATH)
-    server = os.environ.get("TYPE_FIGHTER_SERVER") or settings.get("TYPE_FIGHTER_SERVER", "")
-    return server.rstrip("/")
-
-
-def configured_api_key():
-    settings = read_settings_file(SETTINGS_PATH)
-    return os.environ.get("TYPE_FIGHTER_API_KEY") or settings.get("TYPE_FIGHTER_API_KEY", "")
-
-
-def valid_email(email):
-    email = str(email).strip()
-    return bool(re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email))
-
-
-def password_validation_error(password):
-    if len(password) < 8:
-        return "Password must be at least 8 characters."
-    if not any(character.isupper() for character in password):
-        return "Password must contain at least one uppercase letter."
-    if not any(character.islower() for character in password):
-        return "Password must contain at least one lowercase letter."
-    if not any(character.isdigit() for character in password):
-        return "Password must contain at least one number."
-    if not any(not character.isalnum() for character in password):
-        return "Password must contain at least one symbol."
-    return ""
-
-
-def http_error_detail(exc):
-    try:
-        data = json.loads(exc.read().decode("utf-8"))
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
-        return ""
-    detail = data.get("detail") if isinstance(data, dict) else ""
-    return detail if isinstance(detail, str) else ""
-
-
-def load_saved_session():
-    try:
-        data = json.loads(SESSION_CACHE_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
-def save_session_cache():
-    account = player_storage.get("account") or {}
-    if not player_storage.get("save_login") or not player_storage.get("token"):
-        clear_session_cache()
-        return
-    SESSION_CACHE_PATH.write_text(
-        json.dumps(
-            {
-                "token": player_storage["token"],
-                "account": account,
-            },
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-
-
-def clear_session_cache():
-    try:
-        SESSION_CACHE_PATH.unlink()
-    except OSError:
-        pass
-
-
-def load_auth_preferences():
-    return read_settings_file(AUTH_PREFS_PATH)
-
-
-def save_auth_preferences(save_login):
-    value = "true" if save_login else "false"
-    AUTH_PREFS_PATH.write_text(f"SAVE_LOGIN={value}\n", encoding="utf-8")
-
-
-def draw_version_label(screen, font):
-    label = font.render(f"v{CLIENT_VERSION}", True, MUTED_TEXT)
-    width, height = screen.get_size()
-    screen.blit(label, label.get_rect(right=width - 24, bottom=height - 26))
-    offline_warning = player_storage.get("offline_warning", "")
-    if offline_warning:
-        warning = font.render(offline_warning, True, LOCKED_SELECTED)
-        screen.blit(warning, warning.get_rect(right=label.get_rect(right=width - 24).left - 18, bottom=height - 26))
-
-
-def remote_request(method, path, payload=None, timeout=2, extra_headers=None):
-    server_url = player_storage.get("server_url", "")
-    if not server_url:
-        raise OSError("Type Fighter server is not configured")
-    body = None
-    headers = {}
-    api_key = player_storage.get("api_key", "")
-    if api_key:
-        headers["X-API-Key"] = api_key
-    token = player_storage.get("token", "")
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    if payload is not None:
-        body = json.dumps(payload).encode("utf-8")
-        headers["Content-Type"] = "application/json"
-    if extra_headers:
-        headers.update(extra_headers)
-    url = f"{server_url}{path}"
-    logger.debug("Remote request {} {}", method, path)
-    req = request.Request(url, data=body, headers=headers, method=method)
-    try:
-        with request.urlopen(req, timeout=timeout) as response:
-            raw = response.read()
-            logger.debug("Remote response {} {} {}", method, path, response.status)
-    except error.HTTPError as exc:
-        logger.warning("Remote HTTP error {} {} status={}", method, path, exc.code)
-        raise
-    except Exception:
-        logger.exception("Remote request failed {} {}", method, path)
-        raise
-    if not raw:
-        return None
-    return json.loads(raw.decode("utf-8"))
-
-
-def health_check_remote_storage():
-    remote_request("GET", "/health", timeout=2)
-
-
-def remote_server_version():
-    data = remote_request("GET", "/version", timeout=2)
-    version = data.get("version") if isinstance(data, dict) else ""
-    return version.strip() if isinstance(version, str) else ""
-
-
-def remote_game_config():
-    return remote_request("GET", "/config", timeout=4)
-
-
-def load_remote_game_config():
-    data = remote_game_config()
-    apply_config(data)
-    apply_game_settings()
-    save_cached_config(GAME_CONFIG_CACHE_PATH)
-    logger.info("Loaded server game config")
-
-
-def version_mismatch_message(server_version):
-    shown_server_version = server_version or "unknown"
-    return (
-        f"Client version v{CLIENT_VERSION} does not match server version v{shown_server_version}. "
-        "Please update Type Fighter before signing in."
-    )
-
-
-def load_remote_players():
-    data = remote_request("GET", "/players", timeout=4)
-    rows = data.get("players", []) if isinstance(data, dict) else []
-    return normalize_players([row.get("data", {}) for row in rows if isinstance(row, dict)])
-
-
-def save_remote_players(players):
-    active_player_id = player_storage.get("active_player_id", "")
-    player_session = player_storage.get("active_player_session", "")
-    headers = {"X-Player-Session": player_session} if player_session else None
     for player in players:
-        if isinstance(player, dict) and player.get("id"):
-            if active_player_id and player["id"] != active_player_id:
-                continue
-            remote_request(
-                "PUT",
-                f"/players/{parse.quote(player['id'], safe='')}",
-                {"data": player},
-                timeout=4,
-                extra_headers=headers,
-            )
-
-
-def create_remote_player(player):
-    result = remote_request("POST", "/players", {"name": player["name"], "data": player}, timeout=4)
-    data = result.get("data", {}) if isinstance(result, dict) else {}
-    return normalize_players([data])[0] if data else player
-
-
-def delete_remote_player(player):
-    player_id = player.get("id") if isinstance(player, dict) else ""
-    if player_id:
-        remote_request("DELETE", f"/players/{parse.quote(player_id, safe='')}", timeout=4)
-
-
-def force_remote_disconnect(message):
-    stop_player_heartbeat()
-    player_storage["active_player_id"] = ""
-    player_storage["active_player_session"] = ""
-    player_storage["remote_enabled"] = False
-    session_state.set_forced_disconnect(message)
-    try:
-        pygame.event.post(pygame.event.Event(pygame.USEREVENT))
-    except pygame.error:
-        pass
-
-
-def heartbeat_worker(player_id, token):
-    while not heartbeat_stop_event.wait(10):
-        if (
-            not player_storage.get("remote_enabled")
-            or player_storage.get("active_player_id") != player_id
-            or player_storage.get("token") != token
-        ):
-            return
-        try:
-            remote_request(
-                "POST",
-                f"/players/{parse.quote(player_id, safe='')}/heartbeat",
-                timeout=4,
-                extra_headers={"X-Player-Session": player_storage.get("active_player_session", "")},
-            )
-        except error.HTTPError as exc:
-            if exc.code in (401, 409):
-                logger.warning("Player heartbeat rejected status={}", exc.code)
-                force_remote_disconnect("This player has signed in on another client.")
-                return
-            logger.exception("Player heartbeat HTTP error")
-        except (OSError, error.URLError, TimeoutError, json.JSONDecodeError):
-            logger.exception("Player heartbeat failed")
-
-
-def start_player_heartbeat(player_id):
-    global heartbeat_thread
-    stop_player_heartbeat()
-    if not player_id or not player_storage.get("remote_enabled"):
-        return
-    token = player_storage.get("token", "")
-    if not token:
-        return
-    heartbeat_stop_event.clear()
-    heartbeat_thread = threading.Thread(
-        target=heartbeat_worker,
-        args=(player_id, token),
-        daemon=True,
-        name="type-fighter-player-heartbeat",
-    )
-    heartbeat_thread.start()
-
-
-def stop_player_heartbeat():
-    global heartbeat_thread
-    heartbeat_stop_event.set()
-    heartbeat_thread = None
-
-
-def claim_remote_player(player):
-    player_id = player.get("id") if isinstance(player, dict) else ""
-    if not player_id or not player_storage.get("remote_enabled"):
-        return True
-    try:
-        result = remote_request("POST", f"/players/{parse.quote(player_id, safe='')}/claim", timeout=4)
-        player_session = result.get("player_session", "") if isinstance(result, dict) else ""
-        if not player_session:
-            raise OSError("Server did not return a player session token")
-        player_storage["active_player_id"] = player_id
-        player_storage["active_player_session"] = player_session
-        start_player_heartbeat(player_id)
-        return True
-    except error.HTTPError as exc:
-        if exc.code == 409:
-            player_storage["warning"] = "That pilot is active on another computer."
-            return False
-        raise
-
-
-def release_remote_player():
-    player_id = player_storage.get("active_player_id", "")
-    player_session = player_storage.get("active_player_session", "")
-    stop_player_heartbeat()
-    if not player_id or not player_storage.get("remote_enabled"):
-        player_storage["active_player_id"] = ""
-        player_storage["active_player_session"] = ""
-        return
-    try:
-        remote_request(
-            "POST",
-            f"/players/{parse.quote(player_id, safe='')}/release",
-            timeout=2,
-            extra_headers={"X-Player-Session": player_session} if player_session else None,
-        )
-    except (OSError, error.URLError, TimeoutError, json.JSONDecodeError):
-        pass
-    player_storage["active_player_id"] = ""
-    player_storage["active_player_session"] = ""
+        if isinstance(player, dict):
+            player_storage_sqlite.write_player_db(player, CLIENT_VERSION)
 
 
 def load_players():
-    if player_storage.get("remote_enabled"):
-        try:
-            return load_remote_players()
-        except (OSError, error.URLError, TimeoutError, json.JSONDecodeError):
-            logger.exception("Remote player load failed; falling back to local players.json")
-            player_storage["remote_enabled"] = False
-            player_storage["warning"] = "Could not reach Type Fighter Server. Using local player data."
-            player_storage["offline_warning"] = "OFFLINE: online progress will not be saved"
     return load_local_players()
 
 
 def save_players(players):
-    if player_storage.get("remote_enabled"):
-        try:
-            save_remote_players(players)
-            return
-        except error.HTTPError as exc:
-            if exc.code in (401, 409):
-                logger.warning("Remote player save rejected for active player status={}", exc.code)
-                force_remote_disconnect("This player has signed in on another client.")
-                return
-            logger.exception("Remote player save returned HTTP error; falling back to local players.json")
-            player_storage["remote_enabled"] = False
-            player_storage["warning"] = "Could not save to Type Fighter Server. Using local player data."
-            player_storage["offline_warning"] = "OFFLINE: online progress will not be saved"
-        except (OSError, error.URLError, TimeoutError, json.JSONDecodeError):
-            logger.exception("Remote player save failed; falling back to local players.json")
-            player_storage["remote_enabled"] = False
-            player_storage["warning"] = "Could not save to Type Fighter Server. Using local player data."
-            player_storage["offline_warning"] = "OFFLINE: online progress will not be saved"
     save_local_players(players)
 
 
@@ -846,6 +504,8 @@ def create_player_record(
     last_mission_stats=None,
     mission_settings=None,
     pod=None,
+    updated_at="",
+    game_version=CLIENT_VERSION,
 ):
     if not isinstance(lifetime_score, int):
         lifetime_score = 0
@@ -873,7 +533,7 @@ def create_player_record(
     if achievement_awards.get("fully_upgraded"):
         shield_cap += 1
 
-    return {
+    player = {
         "id": str(player_id or uuid.uuid4()),
         "name": name,
         "completed_lessons": completed_lessons or [],
@@ -888,12 +548,15 @@ def create_player_record(
         "perfect_lessons": normalize_lesson_number_list(perfect_lessons),
         "last_mission_stats": last_mission_stats if isinstance(last_mission_stats, dict) else {},
         "mission_settings": normalize_mission_settings(mission_settings),
+        "updated_at": updated_at if isinstance(updated_at, str) and updated_at else player_storage_sqlite.utc_now(),
+        "game_version": game_version if isinstance(game_version, str) and game_version else CLIENT_VERSION,
         "pod": {
             "color": pod_color,
             "type": pod_type,
             "upgrades": pod_upgrades,
         },
     }
+    return player
 
 
 def clean_player_name(name):
@@ -924,13 +587,30 @@ def toggle_fullscreen():
     screen = pygame.display.get_surface()
     if is_letterboxed_fullscreen() or (screen is not None and screen.get_flags() & pygame.FULLSCREEN):
         is_fullscreen = False
-        return set_windowed_16_9(SCREEN_SIZE)
+        size = user_settings.window_size()
+        surface = set_windowed_16_9(size)
+        user_settings.set_display_state(False, surface.get_size())
+        return surface
     is_fullscreen = True
-    return set_fullscreen_16_9()
+    surface = set_fullscreen_16_9()
+    user_settings.set_display_state(True)
+    return surface
 
 
 def enforce_min_window_size(screen):
-    return enforce_16_9_window(screen)
+    surface = enforce_16_9_window(screen)
+    if not is_letterboxed_fullscreen() and not (surface.get_flags() & pygame.FULLSCREEN):
+        user_settings.set_display_state(False, surface.get_size())
+    return surface
+
+
+def initial_display_surface():
+    global is_fullscreen
+    if user_settings.windowed():
+        is_fullscreen = False
+        return set_windowed_16_9(user_settings.window_size())
+    is_fullscreen = True
+    return set_fullscreen_16_9()
 
 
 def run_lesson(screen, clock, lesson, player):
@@ -976,18 +656,8 @@ def create_player_screen(screen, clock, players):
                         message = "That player already exists."
                     else:
                         player = create_player_record(cleaned)
-                        if player_storage.get("remote_enabled"):
-                            try:
-                                player = create_remote_player(player)
-                            except error.HTTPError as exc:
-                                message = "That player already exists." if exc.code == 409 else "Could not create player."
-                                continue
-                            except (OSError, error.URLError, TimeoutError, json.JSONDecodeError):
-                                message = "Could not contact the server."
-                                continue
                         players.append(player)
-                        if not player_storage.get("remote_enabled"):
-                            save_players(players)
+                        save_players(players)
                         return player
                 elif event.key == pygame.K_BACKSPACE:
                     name = name[:-1]
@@ -1039,22 +709,13 @@ def player_select_loop(screen, clock):
     suppress_hover_until_redraw = False
 
     while True:
-        if show_forced_disconnect_if_needed(screen, clock):
-            return "signin"
-        if player_storage.get("warning"):
-            warning = player_storage["warning"]
-            player_storage["warning"] = ""
-            result = message_modal(screen, clock, "PLAYER UNAVAILABLE", warning)
-            if result == "quit":
-                return "quit"
-            players = load_players()
-            continue
         update_star_field(stars, clock.get_time() / 1000)
         if selected >= len(players):
             selected = max(0, len(players) - 1)
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
+                save_players(players)
                 return "quit"
             if event.type == pygame.VIDEORESIZE:
                 screen = enforce_min_window_size(screen)
@@ -1062,22 +723,12 @@ def player_select_loop(screen, clock):
                 if event.key == pygame.K_F11:
                     screen = toggle_fullscreen()
                 elif event.key == pygame.K_q:
+                    save_players(players)
                     return "quit"
-                elif event.key == pygame.K_l:
-                    return return_to_signin()
-                elif event.key == pygame.K_p and player_storage.get("remote_enabled"):
-                    result = change_password_modal(screen, clock)
-                    if result == "quit":
-                        return "quit"
                 elif delete_confirm and event.key == pygame.K_y and players:
                     deleted = players.pop(selected)
-                    if player_storage.get("remote_enabled"):
-                        try:
-                            delete_remote_player(deleted)
-                        except (OSError, error.URLError, TimeoutError, json.JSONDecodeError):
-                            player_storage["warning"] = "Could not delete that player from the server."
-                    else:
-                        save_players(players)
+                    player_storage_sqlite.delete_player_db(deleted)
+                    save_players(players)
                     selected = max(0, selected - 1)
                     delete_confirm = False
                 elif delete_confirm and event.key in (pygame.K_n, pygame.K_ESCAPE):
@@ -1087,8 +738,6 @@ def player_select_loop(screen, clock):
                     new_player = create_player_screen(screen, clock, players)
                     if new_player == "quit":
                         return "quit"
-                    if new_player == "signin":
-                        return "signin"
                     if new_player is not None:
                         selected = players.index(new_player)
                 elif players and event.key in (pygame.K_DELETE, pygame.K_BACKSPACE):
@@ -1104,8 +753,7 @@ def player_select_loop(screen, clock):
                     delete_confirm = False
                     suppress_hover_until_redraw = True
                 elif event.key in (pygame.K_RETURN, pygame.K_SPACE) and players:
-                    if claim_remote_player(players[selected]):
-                        return players, players[selected]
+                    return players, players[selected]
             if event.type == pygame.MOUSEBUTTONDOWN and players:
                 if event.button == 1:
                     if scrollbar_thumb is not None and scrollbar_thumb.collidepoint(event.pos):
@@ -1114,8 +762,7 @@ def player_select_loop(screen, clock):
                         continue
                     for index, rect in player_rects:
                         if rect.collidepoint(event.pos):
-                            if claim_remote_player(players[index]):
-                                return players, players[index]
+                            return players, players[index]
             if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
                 dragging_scrollbar = False
             if event.type == pygame.MOUSEMOTION and dragging_scrollbar and players:
@@ -1206,9 +853,7 @@ def player_select_loop(screen, clock):
         if delete_confirm and players:
             message = f"Delete {players[selected]['name']}? Press Y to confirm or N to cancel."
             draw_text(screen, message, small_font, (245, 203, 92), (text_left + 4, height - 88))
-        footer = "Enter/␣: Select  |  N: New  |  Delete: Delete  |  L: Login  |  Q: Quit"
-        if player_storage.get("remote_enabled"):
-            footer = "Enter / ␣: Select  |  N: New  |  P: Password  |  L: Logout  |  Q: Quit"
+        footer = "Enter/␣: Select  |  N: New  |  Delete: Delete  |  Q: Quit"
         draw_text(screen, footer, small_font, MUTED_TEXT, (text_left + 4, height - 58))
         draw_version_label(screen, small_font)
         pygame.display.flip()
@@ -1236,14 +881,6 @@ def draw_modal_button(screen, rect, text, font, enabled=True, selected=False):
     pygame.draw.rect(screen, border, rect, 2, border_radius=8)
     label = font.render(text, True, color)
     screen.blit(label, label.get_rect(center=rect.center))
-
-
-def show_forced_disconnect_if_needed(screen, clock):
-    message = session_state.consume_forced_disconnect()
-    if not message:
-        return False
-    message_modal(screen, clock, "DICONNECTED", message)
-    return True
 
 
 def message_modal(screen, clock, title, message):
@@ -1278,423 +915,6 @@ def message_modal(screen, clock, title, message):
         draw_modal_button(screen, ok_rect, "OK", body_font, True, True)
         pygame.display.flip()
         clock.tick(60)
-
-
-def auth_request(path, payload=None, method="POST", timeout=4):
-    return remote_request(method, path, payload, timeout)
-
-
-def apply_auth_response(data, save_login=False):
-    if not isinstance(data, dict) or not data.get("token"):
-        raise OSError("Invalid authentication response")
-    player_storage["token"] = data["token"]
-    player_storage["account"] = data.get("account") if isinstance(data.get("account"), dict) else {}
-    player_storage["save_login"] = save_login
-    player_storage["offline_warning"] = ""
-    save_session_cache()
-
-
-def try_saved_session():
-    cached = load_saved_session()
-    token = cached.get("token", "") if isinstance(cached, dict) else ""
-    if not token:
-        return False
-    logger.info("Attempting saved session login")
-    player_storage["token"] = token
-    player_storage["account"] = cached.get("account", {})
-    player_storage["save_login"] = True
-    try:
-        data = remote_request("GET", "/auth/session", timeout=4)
-    except (OSError, error.URLError, TimeoutError, json.JSONDecodeError):
-        logger.exception("Saved session validation failed; clearing local session cache")
-        player_storage["token"] = ""
-        player_storage["account"] = None
-        clear_session_cache()
-        return False
-    player_storage["account"] = data.get("account", {}) if isinstance(data, dict) else {}
-    player_storage["offline_warning"] = ""
-    logger.info("Saved session accepted for account {}", player_storage["account"].get("email", "unknown"))
-    return True
-
-
-def auth_screen(screen, clock, blocked_message="", initial_message=""):
-    title_font = pygame.font.SysFont("arial", 46, bold=True)
-    body_font = pygame.font.SysFont("arial", 24)
-    small_font = pygame.font.SysFont("arial", 18)
-    fields = ["email", "username", "password"]
-    values = {"email": "", "username": "", "password": ""}
-    selected = 0
-    create_account = False
-    save_login = load_auth_preferences().get("SAVE_LOGIN", "").lower() == "true"
-    field_rects = []
-    login_rect = pygame.Rect(0, 0, 0, 0)
-    mode_rect = pygame.Rect(0, 0, 0, 0)
-    exit_rect = pygame.Rect(0, 0, 0, 0)
-    save_rect = pygame.Rect(0, 0, 0, 0)
-    offline_rect = pygame.Rect(0, 0, 0, 0)
-    local_launch_rect = pygame.Rect(0, 0, 0, 0)
-    message = initial_message
-    offline_only = False
-    stars = create_star_field()
-
-    while True:
-        update_star_field(stars, clock.get_time() / 1000)
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                return "quit"
-            if event.type == pygame.VIDEORESIZE:
-                screen = enforce_min_window_size(screen)
-            if event.type == pygame.KEYDOWN:
-                active_fields = [] if offline_only else fields if create_account else ["email", "password"]
-                if event.key == pygame.K_F11:
-                    screen = toggle_fullscreen()
-                elif event.key == pygame.K_q:
-                    return "quit"
-                elif event.key == pygame.K_ESCAPE:
-                    return None
-                elif event.key == pygame.K_TAB and active_fields:
-                    selected = (selected + 1) % len(active_fields)
-                elif event.key == pygame.K_RETURN:
-                    if offline_only:
-                        player_storage["offline_warning"] = "OFFLINE: online progress will not be saved"
-                        return None
-                    if blocked_message:
-                        message = blocked_message
-                        continue
-                    email = values["email"].strip().lower()
-                    password = values["password"]
-                    username = values["username"].strip()
-                    if not valid_email(email):
-                        message = "Enter a valid email address."
-                    elif not password:
-                        message = "Enter a password."
-                    elif create_account and not username:
-                        message = "Enter a username."
-                    elif create_account and password_validation_error(password):
-                        message = password_validation_error(password)
-                    else:
-                        try:
-                            if create_account:
-                                data = auth_request(
-                                    "/auth/register",
-                                    {"email": email, "username": username, "password": password},
-                                )
-                            else:
-                                data = auth_request("/auth/login", {"email": email, "password": password})
-                            apply_auth_response(data, save_login)
-                            return "signed-in"
-                        except error.HTTPError as exc:
-                            logger.warning("Authentication HTTP error status={}", exc.code)
-                            if exc.code == 400:
-                                message = http_error_detail(exc) or "Account details are invalid."
-                            elif exc.code == 409:
-                                message = "Account already exists."
-                            else:
-                                message = "Sign in failed."
-                        except (OSError, error.URLError, TimeoutError, json.JSONDecodeError):
-                            logger.exception("Authentication request failed")
-                            player_storage["offline_warning"] = "OFFLINE: online progress will not be saved"
-                            message = "Could not contact the server."
-                elif event.key == pygame.K_BACKSPACE:
-                    if active_fields:
-                        active_field = active_fields[selected]
-                        values[active_field] = values[active_field][:-1]
-                elif event.unicode and event.unicode.isprintable():
-                    if active_fields:
-                        active_field = active_fields[selected]
-                        if active_field in ("email", "username") and event.unicode.isspace():
-                            continue
-                        if len(values[active_field]) < 80:
-                            values[active_field] += event.unicode
-            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                for index, rect in enumerate(field_rects):
-                    if rect.collidepoint(event.pos):
-                        selected = index
-                if offline_rect.collidepoint(event.pos):
-                    offline_only = not offline_only
-                    selected = 0
-                if mode_rect.collidepoint(event.pos) and not offline_only:
-                    create_account = not create_account
-                    selected = min(selected, 2 if create_account else 1)
-                if save_rect.collidepoint(event.pos) and not offline_only:
-                    save_login = not save_login
-                    save_auth_preferences(save_login)
-                if local_launch_rect.collidepoint(event.pos) and offline_only:
-                    player_storage["offline_warning"] = "OFFLINE: online progress will not be saved"
-                    return None
-                if login_rect.collidepoint(event.pos) and not offline_only:
-                    pygame.event.post(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RETURN, unicode="\r"))
-                if exit_rect.collidepoint(event.pos):
-                    return "quit"
-
-        screen = pygame.display.get_surface()
-        width, height = screen.get_size()
-        content_width = min(760, max(520, width - 160))
-        left = (width - content_width) / 2
-        screen.fill(BG_COLOR)
-        draw_star_field(screen, stars)
-
-        title = title_font.render("TYPE FIGHTER SIGN IN", True, TEXT_COLOR)
-        screen.blit(title, title.get_rect(center=(width / 2, height / 2 - 150)))
-        draw_text(
-            screen,
-            "Sign in to sync saves, or choose offline only play.",
-            body_font,
-            MUTED_TEXT,
-            (left, height / 2 - 102),
-        )
-        field_rects = []
-        visible_fields = [] if offline_only else fields if create_account else ["email", "password"]
-        start_y = height / 2 - 58
-        for index, field in enumerate(visible_fields):
-            input_rect = pygame.Rect(left, start_y + index * 70, content_width, 56)
-            field_rects.append(input_rect)
-            pygame.draw.rect(screen, (13, 22, 42), input_rect, border_radius=8)
-            pygame.draw.rect(screen, ACCENT if index == selected else (43, 57, 89), input_rect, 2, border_radius=8)
-            placeholder = {"email": "email@example.com", "username": "Username", "password": "Password"}[field]
-            value = "*" * len(values[field]) if field == "password" and values[field] else values[field]
-            draw_text(screen, value or placeholder, body_font, TEXT_COLOR if value else MUTED_TEXT, (input_rect.x + 18, input_rect.y + 15))
-        options_y = start_y + len(visible_fields) * 70 + 4
-        offline_rect = pygame.Rect(left, options_y, 26, 26)
-        pygame.draw.rect(screen, (13, 22, 42), offline_rect, border_radius=4)
-        pygame.draw.rect(screen, ACCENT, offline_rect, 2, border_radius=4)
-        if offline_only:
-            pygame.draw.line(screen, ACCENT, (offline_rect.x + 6, offline_rect.centery), (offline_rect.centerx, offline_rect.bottom - 7), 3)
-            pygame.draw.line(screen, ACCENT, (offline_rect.centerx, offline_rect.bottom - 7), (offline_rect.right - 5, offline_rect.y + 6), 3)
-        draw_text(screen, "Offline only play", small_font, MUTED_TEXT, (offline_rect.right + 10, offline_rect.y + 3))
-        if offline_only:
-            save_rect = pygame.Rect(0, 0, 0, 0)
-            mode_rect = pygame.Rect(0, 0, 0, 0)
-            login_rect = pygame.Rect(0, 0, 0, 0)
-            local_launch_rect = pygame.Rect(left + content_width - 230, offline_rect.bottom + 22, 230, 42)
-            exit_rect = pygame.Rect(left, offline_rect.bottom + 22, 150, 42)
-            draw_modal_button(screen, local_launch_rect, "Launch Local Play", body_font, True, True)
-        else:
-            save_rect = pygame.Rect(left, offline_rect.bottom + 16, 26, 26)
-            pygame.draw.rect(screen, (13, 22, 42), save_rect, border_radius=4)
-            pygame.draw.rect(screen, ACCENT, save_rect, 2, border_radius=4)
-            if save_login:
-                pygame.draw.line(screen, ACCENT, (save_rect.x + 6, save_rect.centery), (save_rect.centerx, save_rect.bottom - 7), 3)
-                pygame.draw.line(screen, ACCENT, (save_rect.centerx, save_rect.bottom - 7), (save_rect.right - 5, save_rect.y + 6), 3)
-            draw_text(screen, "Save login on this computer", small_font, MUTED_TEXT, (save_rect.right + 10, save_rect.y + 3))
-            mode_rect = pygame.Rect(left, save_rect.bottom + 22, 210, 42)
-            login_rect = pygame.Rect(left + content_width - 190, save_rect.bottom + 22, 190, 42)
-            exit_rect = pygame.Rect(left + 226, save_rect.bottom + 22, 150, 42)
-            local_launch_rect = pygame.Rect(0, 0, 0, 0)
-            draw_modal_button(screen, mode_rect, "Create Account" if not create_account else "Sign In", body_font, True, False)
-            draw_modal_button(screen, login_rect, "Create" if create_account else "Sign In", body_font, not blocked_message, not blocked_message)
-        draw_modal_button(screen, exit_rect, "Exit", body_font, True, False)
-        if message:
-            message_y = local_launch_rect.bottom + 18 if offline_only else login_rect.bottom + 18
-            draw_text(screen, message, small_font, LOCKED_SELECTED, (left, message_y))
-        footer = "Enter: Launch local  |  Esc: Use local saves  |  F11: Max size" if offline_only else "Tab: Next field  |  Enter: Submit  |  Esc: Use local saves  |  F11: Max size"
-        draw_text(screen, footer, small_font, MUTED_TEXT, (left, height - 58))
-        draw_version_label(screen, small_font)
-        pygame.display.flip()
-        clock.tick(60)
-
-
-def change_password_modal(screen, clock):
-    title_font = pygame.font.SysFont("arial", 42, bold=True)
-    body_font = pygame.font.SysFont("arial", 22)
-    small_font = pygame.font.SysFont("arial", 18)
-    fields = ["current_password", "new_password", "confirm_password"]
-    labels = {
-        "current_password": "Current password",
-        "new_password": "New password",
-        "confirm_password": "Confirm new password",
-    }
-    values = {field: "" for field in fields}
-    selected = 0
-    message = ""
-    field_rects = []
-    submit_rect = pygame.Rect(0, 0, 0, 0)
-    cancel_rect = pygame.Rect(0, 0, 0, 0)
-
-    while True:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                return "quit"
-            if event.type == pygame.VIDEORESIZE:
-                screen = enforce_min_window_size(screen)
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:
-                    return None
-                if event.key == pygame.K_TAB:
-                    selected = (selected + 1) % len(fields)
-                elif event.key == pygame.K_RETURN:
-                    current_password = values["current_password"]
-                    new_password = values["new_password"]
-                    confirm_password = values["confirm_password"]
-                    password_error = password_validation_error(new_password)
-                    if not current_password:
-                        message = "Enter your current password."
-                    elif password_error:
-                        message = password_error
-                    elif new_password != confirm_password:
-                        message = "New passwords do not match."
-                    else:
-                        try:
-                            remote_request(
-                                "POST",
-                                "/auth/change-password",
-                                {
-                                    "current_password": current_password,
-                                    "new_password": new_password,
-                                },
-                                timeout=4,
-                            )
-                            message_modal(screen, clock, "PASSWORD UPDATED", "Your password has been changed.")
-                            return None
-                        except error.HTTPError as exc:
-                            if exc.code == 400:
-                                message = http_error_detail(exc) or "New password is invalid."
-                            elif exc.code == 401:
-                                message = "Current password is incorrect."
-                            else:
-                                message = "Could not change password."
-                        except (OSError, error.URLError, TimeoutError, json.JSONDecodeError):
-                            message = "Could not contact the server."
-                elif event.key == pygame.K_BACKSPACE:
-                    values[fields[selected]] = values[fields[selected]][:-1]
-                elif event.unicode and event.unicode.isprintable() and len(values[fields[selected]]) < 80:
-                    values[fields[selected]] += event.unicode
-            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                for index, rect in enumerate(field_rects):
-                    if rect.collidepoint(event.pos):
-                        selected = index
-                if submit_rect.collidepoint(event.pos):
-                    pygame.event.post(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RETURN, unicode="\r"))
-                if cancel_rect.collidepoint(event.pos):
-                    return None
-
-        screen = pygame.display.get_surface()
-        width, height = screen.get_size()
-        draw_modal_backdrop(screen)
-        rect = pygame.Rect(0, 0, min(640, width - 80), 430)
-        rect.center = (width / 2, height / 2)
-        pygame.draw.rect(screen, (10, 18, 34), rect, border_radius=8)
-        pygame.draw.rect(screen, ACCENT, rect, 2, border_radius=8)
-        draw_text(screen, "CHANGE PASSWORD", title_font, TEXT_COLOR, (rect.x + 28, rect.y + 26))
-        field_rects = []
-        start_y = rect.y + 96
-        for index, field in enumerate(fields):
-            input_rect = pygame.Rect(rect.x + 34, start_y + index * 70, rect.width - 68, 54)
-            field_rects.append(input_rect)
-            pygame.draw.rect(screen, (13, 22, 42), input_rect, border_radius=8)
-            pygame.draw.rect(screen, ACCENT if index == selected else (43, 57, 89), input_rect, 2, border_radius=8)
-            value = "*" * len(values[field]) if values[field] else ""
-            draw_text(screen, value or labels[field], body_font, TEXT_COLOR if value else MUTED_TEXT, (input_rect.x + 16, input_rect.y + 14))
-        if message:
-            draw_text(screen, message, small_font, LOCKED_SELECTED, (rect.x + 36, rect.bottom - 112))
-        submit_rect = pygame.Rect(rect.x + 34, rect.bottom - 62, 190, 42)
-        cancel_rect = pygame.Rect(rect.right - 224, rect.bottom - 62, 190, 42)
-        draw_modal_button(screen, submit_rect, "Change", body_font, True, True)
-        draw_modal_button(screen, cancel_rect, "Cancel", body_font, True, False)
-        pygame.display.flip()
-        clock.tick(60)
-
-
-def configure_player_storage(screen, clock):
-    ensure_menu_music()
-    server_url = configured_server_url()
-    if not server_url:
-        player_storage["remote_enabled"] = False
-        player_storage["offline_warning"] = "OFFLINE: online progress will not be saved"
-        auth_result = auth_screen(screen, clock, initial_message="Server is not configured. Choose offline only play.")
-        return "quit" if auth_result == "quit" else None
-    player_storage["server_url"] = server_url
-    player_storage["api_key"] = configured_api_key()
-    try:
-        health_check_remote_storage()
-    except (OSError, error.URLError, TimeoutError, json.JSONDecodeError):
-        logger.exception("Server health check failed; using local player data")
-        player_storage["remote_enabled"] = False
-        player_storage["offline_warning"] = "OFFLINE: online progress will not be saved"
-        auth_result = auth_screen(screen, clock, initial_message="Could not contact Type Fighter Server. Choose offline only play.")
-        return "quit" if auth_result == "quit" else None
-    try:
-        server_version = remote_server_version()
-    except (OSError, error.URLError, TimeoutError, json.JSONDecodeError):
-        logger.exception("Server version check failed")
-        server_version = ""
-    if server_version != CLIENT_VERSION:
-        logger.warning("Version mismatch client={} server={}", CLIENT_VERSION, server_version or "unknown")
-        player_storage["remote_enabled"] = False
-        player_storage["token"] = ""
-        player_storage["account"] = None
-        clear_session_cache()
-        mismatch_message = version_mismatch_message(server_version)
-        modal_result = message_modal(screen, clock, "VERSION MISMATCH", mismatch_message)
-        if modal_result == "quit":
-            return "quit"
-        auth_result = auth_screen(screen, clock, blocked_message=mismatch_message)
-        if auth_result == "quit":
-            return "quit"
-        return None
-    try:
-        load_remote_game_config()
-    except (OSError, error.URLError, TimeoutError, json.JSONDecodeError):
-        logger.exception("Server game config load failed; using cached/default config")
-    if not try_saved_session():
-        auth_result = auth_screen(screen, clock)
-        if auth_result == "quit":
-            return "quit"
-        if not auth_result:
-            return None
-    player_storage["remote_enabled"] = True
-    player_storage["offline_warning"] = ""
-    logger.info("Remote player storage enabled for {}", (player_storage.get("account") or {}).get("email", "unknown"))
-    return None
-
-
-def draw_buy_button(screen, rect, font, hovered=False, enabled=True):
-    if enabled:
-        fill = (118, 88, 24) if hovered else (20, 32, 58)
-        border = LOCKED_SELECTED if hovered else ACCENT
-        color = TEXT_COLOR
-    else:
-        fill = (12, 17, 28)
-        border = (35, 42, 62)
-        color = MUTED_TEXT
-    pygame.draw.rect(screen, fill, rect, border_radius=8)
-    pygame.draw.rect(screen, border, rect, 2, border_radius=8)
-    label = font.render("BUY", True, color)
-    screen.blit(label, label.get_rect(center=rect.center))
-
-
-def draw_sell_button(screen, rect, font, hovered=False, enabled=True):
-    if enabled:
-        fill = (78, 42, 50) if hovered else (42, 26, 36)
-        border = (219, 92, 101) if hovered else (142, 82, 96)
-        color = TEXT_COLOR
-    else:
-        fill = (12, 17, 28)
-        border = (35, 42, 62)
-        color = MUTED_TEXT
-    pygame.draw.rect(screen, fill, rect, border_radius=8)
-    pygame.draw.rect(screen, border, rect, 2, border_radius=8)
-    label = font.render("SELL", True, color)
-    screen.blit(label, label.get_rect(center=rect.center))
-
-
-def wrap_plain_text(text, font, max_width):
-    lines = []
-    for paragraph in str(text).splitlines():
-        words = paragraph.split()
-        if not words:
-            lines.append("")
-            continue
-        line = words[0]
-        for word in words[1:]:
-            candidate = f"{line} {word}"
-            if font.size(candidate)[0] <= max_width:
-                line = candidate
-            else:
-                lines.append(line)
-                line = word
-        lines.append(line)
-    return lines
 
 
 def draw_centered_wrapped_text(surface, text, font, color, rect, line_spacing=6):
@@ -2684,10 +1904,7 @@ def menu_loop(screen, clock, players, player):
         save_players(players)
 
     while True:
-        if show_forced_disconnect_if_needed(screen, clock):
-            return "signin"
         if player_storage.get("warning"):
-            release_remote_player()
             return "players"
         update_star_field(stars, clock.get_time() / 1000)
         unlocked_count = unlocked_lesson_count(player)
@@ -2700,13 +1917,16 @@ def menu_loop(screen, clock, players, player):
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
+                save_players(players)
                 return "quit"
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_F11:
                     screen = toggle_fullscreen()
                 if event.key == pygame.K_q:
+                    save_players(players)
                     return "quit"
                 if event.key == pygame.K_ESCAPE:
+                    save_players(players)
                     return "players"
                 if event.key == pygame.K_o:
                     unlocked_lesson = max(1, unlocked_count)
@@ -2748,9 +1968,6 @@ def menu_loop(screen, clock, players, player):
                         lesson_number = LESSONS[completed_index]["number"]
                         was_completed = lesson_number in set(player.get("completed_lessons", []))
                         result = run_lesson(screen, clock, LESSONS[completed_index], player)
-                        if result == "signin":
-                            show_forced_disconnect_if_needed(screen, clock)
-                            return "signin"
                         save_players(players)
                         if result == "quit":
                             return "quit"
@@ -2779,6 +1996,10 @@ def menu_loop(screen, clock, players, player):
                     result = upgrades_modal_loop(screen, clock, players, player)
                     if result == "quit":
                         return "quit"
+                    new_achievement_modals = collect_new_achievement_modals(player)
+                    if new_achievement_modals:
+                        pending_reward_modals.extend(new_achievement_modals)
+                        save_players(players)
                     pygame.event.clear((pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP))
                     continue
                 for index, rect in mission_rects:
@@ -2788,9 +2009,6 @@ def menu_loop(screen, clock, players, player):
                             lesson_number = LESSONS[index]["number"]
                             was_completed = lesson_number in set(player.get("completed_lessons", []))
                             result = run_lesson(screen, clock, LESSONS[index], player)
-                            if result == "signin":
-                                show_forced_disconnect_if_needed(screen, clock)
-                                return "signin"
                             save_players(players)
                             if result == "quit":
                                 return "quit"
@@ -2964,7 +2182,7 @@ def set_windows_app_id():
 
 
 def main():
-    load_cached_config(GAME_CONFIG_CACHE_PATH)
+    load_game_data_db(GAME_DATA_DB_PATH)
     apply_game_settings()
     setup_logging(logging_enabled())
     set_windows_app_id()
@@ -2975,34 +2193,20 @@ def main():
         pass
 
     set_window_metadata()
-    screen = set_fullscreen_16_9()
+    screen = initial_display_surface()
     if hasattr(pygame.display, "set_minimum_size"):
         pygame.display.set_minimum_size(*MIN_SCREEN_SIZE)
     clock = pygame.time.Clock()
 
     try:
-        storage_result = configure_player_storage(screen, clock)
-        if storage_result == "quit":
-            return
         while True:
             selection = player_select_loop(screen, clock)
             if selection == "quit":
                 break
-            if selection == "signin":
-                storage_result = configure_player_storage(screen, clock)
-                if storage_result == "quit":
-                    break
-                continue
             players, player = selection
             result = menu_loop(screen, clock, players, player)
-            release_remote_player()
             if result == "quit":
                 break
-            if result == "signin":
-                storage_result = configure_player_storage(screen, clock)
-                if storage_result == "quit":
-                    break
-                continue
     except Exception:
         logger.exception("Fatal client error")
         raise

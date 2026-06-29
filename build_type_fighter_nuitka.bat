@@ -37,15 +37,6 @@ if "%TYPE_FIGHTER_RELEASE_NAME%"=="" (
 set "NUITKA_WORK_DIR=%~dp0build\nuitka"
 set "NUITKA_DIST_DIR=%NUITKA_WORK_DIR%\game.dist"
 set "RELEASE_DIR=%~dp0releases\%TYPE_FIGHTER_RELEASE_NAME%"
-set "SETTINGS_SOURCE=%~dp0src\settings.cfg"
-
-if not exist "%SETTINGS_SOURCE%" (
-  set "SETTINGS_SOURCE=%~dp0build\settings.cfg"
-  >"%~dp0build\settings.cfg" echo TYPE_FIGHTER_SERVER=http://127.0.0.1:33133
-  >>"%~dp0build\settings.cfg" echo TYPE_FIGHTER_API_KEY=
-  echo src\settings.cfg was not found. Packaging default local settings.
-  echo Create ignored file src\settings.cfg to package custom server settings.
-)
 
 echo Building %TYPE_FIGHTER_RELEASE_NAME% with Nuitka
 
@@ -63,7 +54,6 @@ if exist "%RELEASE_DIR%" rmdir /s /q "%RELEASE_DIR%"
   --include-data-dir="%~dp0src\gfx=gfx" ^
   --include-data-dir="%~dp0src\sfx=sfx" ^
   --include-data-dir="%~dp0src\lessons=lessons" ^
-  --include-data-files="%SETTINGS_SOURCE%=settings.cfg" ^
   --include-data-files="%~dp0src\version_info.json=version_info.json" ^
   --noinclude-data-files="*.psd" ^
   --noinclude-data-files="*.PSD" ^

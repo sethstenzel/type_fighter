@@ -1,4 +1,5 @@
 import json
+import sqlite3
 from pathlib import Path
 
 
@@ -334,3 +335,94 @@ def save_cached_config(path):
         json.dumps({"settings": GAME_SETTINGS, "upgrades": UPGRADE_CATALOG, "achievements": ACHIEVEMENTS}, indent=2),
         encoding="utf-8",
     )
+
+
+def init_game_data_db(path):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS game_settings (
+                key TEXT PRIMARY KEY,
+                value_json TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS upgrades (
+                id TEXT PRIMARY KEY,
+                data_json TEXT NOT NULL,
+                sort_order INTEGER NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS achievements (
+                id TEXT PRIMARY KEY,
+                data_json TEXT NOT NULL,
+                sort_order INTEGER NOT NULL
+            )
+            """
+        )
+        if not connection.execute("SELECT 1 FROM game_settings LIMIT 1").fetchone():
+            save_game_data_db(path)
+
+
+def load_game_data_db(path):
+    path = Path(path)
+    if not path.exists():
+        init_game_data_db(path)
+        return False
+    settings = {}
+    upgrades = []
+    achievements = []
+    with sqlite3.connect(path) as connection:
+        connection.row_factory = sqlite3.Row
+        for row in connection.execute("SELECT key, value_json FROM game_settings ORDER BY key"):
+            try:
+                settings[row["key"]] = json.loads(row["value_json"])
+            except json.JSONDecodeError:
+                continue
+        for row in connection.execute("SELECT data_json FROM upgrades ORDER BY sort_order, id"):
+            try:
+                value = json.loads(row["data_json"])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, dict):
+                upgrades.append(value)
+        for row in connection.execute("SELECT data_json FROM achievements ORDER BY sort_order, id"):
+            try:
+                value = json.loads(row["data_json"])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, dict):
+                achievements.append(value)
+    apply_config({"settings": settings, "upgrades": upgrades, "achievements": achievements})
+    return True
+
+
+def save_game_data_db(path):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(path) as connection:
+        connection.execute("DELETE FROM game_settings")
+        connection.execute("DELETE FROM upgrades")
+        connection.execute("DELETE FROM achievements")
+        for key, value in GAME_SETTINGS.items():
+            connection.execute(
+                "INSERT INTO game_settings (key, value_json) VALUES (?, ?)",
+                (key, json.dumps(value, separators=(",", ":"))),
+            )
+        for sort_order, upgrade in enumerate(UPGRADE_CATALOG):
+            connection.execute(
+                "INSERT INTO upgrades (id, data_json, sort_order) VALUES (?, ?, ?)",
+                (upgrade["id"], json.dumps(upgrade, separators=(",", ":")), sort_order),
+            )
+        for sort_order, achievement in enumerate(ACHIEVEMENTS):
+            connection.execute(
+                "INSERT INTO achievements (id, data_json, sort_order) VALUES (?, ?, ?)",
+                (achievement["id"], json.dumps(achievement, separators=(",", ":")), sort_order),
+            )

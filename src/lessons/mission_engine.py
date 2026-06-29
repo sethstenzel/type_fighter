@@ -5,7 +5,7 @@ import random
 from pathlib import Path
 
 import pygame
-import session_state
+import user_settings
 
 from lessons.audio import (
     audio_duration_ms,
@@ -391,12 +391,19 @@ class Star:
 def toggle_fullscreen():
     screen = pygame.display.get_surface()
     if is_letterboxed_fullscreen() or screen.get_flags() & pygame.FULLSCREEN:
-        return set_windowed_16_9(BASE_SCREEN_SIZE)
-    return set_fullscreen_16_9()
+        surface = set_windowed_16_9(user_settings.window_size())
+        user_settings.set_display_state(False, surface.get_size())
+        return surface
+    surface = set_fullscreen_16_9()
+    user_settings.set_display_state(True)
+    return surface
 
 
 def enforce_min_window_size(screen):
-    return enforce_16_9_window(screen)
+    surface = enforce_16_9_window(screen)
+    if not is_letterboxed_fullscreen() and not (surface.get_flags() & pygame.FULLSCREEN):
+        user_settings.set_display_state(False, surface.get_size())
+    return surface
 
 
 def load_image(path):
@@ -2291,9 +2298,6 @@ class MissionEngine:
         scroll_speed = 0
         try:
             while True:
-                if session_state.has_forced_disconnect():
-                    stop_audio()
-                    return "signin"
                 now = pygame.time.get_ticks()
                 dt = self.clock.tick(60) / 1000
                 for event in pygame.event.get():
@@ -2834,7 +2838,7 @@ class MissionEngine:
         )
         draw_hud(self.screen, self.font, min(self.destroyed, self.drone_target), self.drone_target, self.score, self.lives)
         footer_font = pygame.font.SysFont("arial", 18)
-        footer_text = "O: Options  |  Esc: Pause  |  F11: Max size"
+        footer_text = "Esc: Pause  |  F11: Max size"
         footer_surface = footer_font.render(footer_text, True, MUTED_TEXT)
         self.screen.blit(footer_surface, footer_surface.get_rect(center=(width / 2, height - 28)))
 
@@ -3051,9 +3055,6 @@ class MissionEngine:
 
         while True:
             dt, now = self._begin_frame()
-            if session_state.has_forced_disconnect():
-                stop_audio()
-                return self._finish("signin")
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     stop_audio()
@@ -3064,24 +3065,6 @@ class MissionEngine:
                     started_space_charge = False
                     if event.key == pygame.K_F11:
                         self.screen = toggle_fullscreen()
-                    if event.key == pygame.K_o:
-                        pygame.mouse.set_visible(True)
-                        settings_started_at = pygame.time.get_ticks()
-                        settings_result = mission_settings_modal(
-                            self.screen,
-                            self.clock,
-                            self.player,
-                            self.mission_settings,
-                            self._settings_unlocks(),
-                        )
-                        self._shift_gameplay_timers(pygame.time.get_ticks() - settings_started_at)
-                        self._apply_mission_settings()
-                        pygame.mouse.set_visible(False)
-                        pygame.event.clear((pygame.KEYDOWN, pygame.KEYUP, pygame.MOUSEBUTTONDOWN))
-                        if settings_result == "quit":
-                            stop_audio()
-                            return self._finish("quit")
-                        continue
                     if event.key == pygame.K_ESCAPE:
                         pygame.mouse.set_visible(True)
                         if self.bg_music_channel is not None:
