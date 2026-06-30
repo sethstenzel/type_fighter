@@ -2829,6 +2829,11 @@ class MissionEngine:
             return False
         return self.player_center.distance_to(self._boss_player_target_center()) <= 2
 
+    def _firing_locked_for_boss_intro(self):
+        # While final bosses are still approaching/repositioning the player cannot
+        # engage them yet, so key presses must not be counted as inaccurate.
+        return bool(self.final_bosses) and not self._boss_perspective_ready()
+
     def _shift_gameplay_timers(self, elapsed_ms):
         if elapsed_ms <= 0:
             return
@@ -3547,6 +3552,7 @@ class MissionEngine:
                         and not shot_queued
                         and not started_space_charge
                         and not self._defense_drone_accuracy_grace_active(pressed_key, now)
+                        and not self._firing_locked_for_boss_intro()
                     ):
                         self._record_inaccurate_key(pressed_key, now)
                 if event.type == pygame.KEYUP:
