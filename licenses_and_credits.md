@@ -40,6 +40,14 @@ original_url:  https://www.looperman.com/loops/detail/298937/0xa8677001-free-132
 original_name: looperman-l-1791281-0298937-0xa8677001.wav
 asset_name:    boss_music.wav
 
+pixabay.com:   https://pixabay.com/sound-effects/film-special-effects-sci-fi-portal-jump-04-416161/
+license:       https://pixabay.com/service/license-summary/
+creator_site:  https://ko-fi.com/dragonstudio
+original_name: dragon-studio-sci-fi-portal-jump-04-416161.mp3
+asset_name:    time_dilation.wav, time_dilation_ending.wav
+modified:      yes
+
+
  
 ```
 
