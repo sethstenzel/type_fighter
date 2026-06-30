@@ -2253,11 +2253,6 @@ def pause_menu(screen, clock):
             rect.center = (width / 2, start_y + index * (button_height + button_gap))
             buttons.append(rect)
 
-        mouse_pos = pygame.mouse.get_pos()
-        for index, rect in enumerate(buttons):
-            if rect.collidepoint(mouse_pos):
-                selected = index
-
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return "quit"
@@ -2279,6 +2274,13 @@ def pause_menu(screen, clock):
                     return "restart"
                 if event.key == pygame.K_x:
                     return "menu"
+            if event.type == pygame.MOUSEMOTION:
+                # Only the cursor *moving* changes the selection; a stationary
+                # cursor must not override keyboard navigation each frame.
+                for index, rect in enumerate(buttons):
+                    if rect.collidepoint(event.pos):
+                        selected = index
+                        break
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 for index, rect in enumerate(buttons):
                     if rect.collidepoint(event.pos):
