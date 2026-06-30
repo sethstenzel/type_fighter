@@ -1092,7 +1092,7 @@ MINI_BOSS_SCORE = 200          # purple semi-boss, awarded on kill
 MINI_BOSS_MEGA_BONUS = 100     # extra for a one-Mega-Shot semi-boss kill
 FINAL_BOSS_SCORE = 1000        # per final boss defeated
 POWER_UP_SCORE = 100           # per power-up collected
-HIGH_SCORE_FLAT_BONUS = 1000   # the standalone "1000 points" term in the goal
+HIGH_SCORE_FLAT_BONUS = 500    # the standalone flat term in the goal
 HIGH_SCORE_BASE_BONUS = 2000   # the trailing "+ 2000" term in the goal
 
 

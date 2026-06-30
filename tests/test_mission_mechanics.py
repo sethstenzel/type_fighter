@@ -229,9 +229,9 @@ class MissionMechanicsTests(unittest.TestCase):
         self.assertEqual(me.mega_kill_bonus(3), 100)  # red
 
     def test_high_score_goal_formula(self):
-        # drone*100 + powerups*100 + 1000 + boss + semis*200 + 2000
-        self.assertEqual(me.high_score_goal(30, 4, 0, 0), 30 * 100 + 400 + 1000 + 0 + 0 + 2000)
-        self.assertEqual(me.high_score_goal(51, 4, 1000, 5), 5100 + 400 + 1000 + 1000 + 1000 + 2000)
+        # drone*100 + powerups*100 + 500 (flat) + boss + semis*200 + 2000
+        self.assertEqual(me.high_score_goal(30, 4, 0, 0), 30 * 100 + 400 + 500 + 0 + 0 + 2000)
+        self.assertEqual(me.high_score_goal(51, 4, 1000, 5), 5100 + 400 + 500 + 1000 + 1000 + 2000)
 
     # --- Issue #16: timer helpers ---
     def test_format_mission_time(self):
