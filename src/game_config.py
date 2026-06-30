@@ -36,7 +36,7 @@ DEFAULT_GAME_SETTINGS = {
         {"start": 30, "end": None, "warning_threshold": 80, "limited_threshold": 70},
     ],
     "time_dilation_duration_ms": 10000,
-    "time_dilation_expand_ms": 1200,
+    "time_dilation_expand_ms": 450,
     "time_dilation_contract_ms": 2500,
     "time_dilation_min_speed_scale": 0.0,
     "time_dilation_max_charges": 3,

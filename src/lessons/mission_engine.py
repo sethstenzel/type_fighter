@@ -151,7 +151,7 @@ TIME_DILATION_UNLOCK_LESSON = 26      # completing this lesson unlocks the abili
 TIME_DILATION_START_LESSON = 27       # power-ups only spawn from this lesson on
 TIME_DILATION_MAX_CHARGES = 3
 TIME_DILATION_DURATION_MS = 10000     # total time-stop duration
-TIME_DILATION_EXPAND_MS = 1200        # ring sweep-out (freezes nearest objects first)
+TIME_DILATION_EXPAND_MS = 450         # ring sweep-out (freezes nearest objects first)
 TIME_DILATION_CONTRACT_MS = 2500      # slow recede at the end (un-freezes farthest first)
 TIME_DILATION_MIN_SPEED_SCALE = 0.0   # frozen objects' speed while inside the ring (0 = full stop)
 TIME_DILATION_TRIPLE_TAP_MS = 600     # window for the 3 rapid spacebar taps
@@ -3194,10 +3194,18 @@ class MissionEngine:
         if not self.final_bosses:
             return
         for final_boss in self.final_bosses:
-            object_dt = dt * self._object_time_scale(final_boss.pos)
+            object_scale = self._object_time_scale(final_boss.pos)
+            object_dt = dt * object_scale
             update_final_boss_movement(final_boss, self.screen, object_dt, now)
             final_boss.rotation = (final_boss.rotation + math.tau * object_dt / FINAL_BOSS_ROTATION_SECONDS) % math.tau
             update_final_boss_shield(final_boss, now)
+            if object_scale < 1.0:
+                # Frozen: no firing or semi-boss spawning; pause the timers.
+                if final_boss.next_shot_time:
+                    final_boss.next_shot_time += dt * 1000
+                if final_boss.next_semi_boss_spawn_time:
+                    final_boss.next_semi_boss_spawn_time += dt * 1000
+                continue
             if final_boss.is_orbiting and self._boss_perspective_ready() and final_boss.next_shot_time == 0:
                 final_boss.next_shot_time = now + FINAL_BOSS_ATTACK_INTERVAL_MS
             if (
@@ -3229,15 +3237,21 @@ class MissionEngine:
     def _update_drones(self, now, dt):
         for drone in self.drones[:]:
             center = self.player_center
-            object_dt = dt * self._object_time_scale(drone.pos)
+            object_scale = self._object_time_scale(drone.pos)
+            object_dt = dt * object_scale
             update_drone_position(drone, center, object_dt)
             drone.rotation = (drone.rotation + drone_rotation_radians_per_second(drone) * object_dt) % math.tau
-            if drone.is_mega and now >= drone.next_shot_time:
+            if object_scale < 1.0:
+                # Frozen by the time-stop ring: no shooting; pause the cooldown so
+                # it doesn't fire the instant it un-freezes (purple drones can't
+                # spawn more drones while frozen).
+                drone.next_shot_time += dt * 1000
+            elif drone.is_mega and now >= drone.next_shot_time:
                 blocked_key = random.choice(self.final_bosses).letter if self.final_bosses else None
                 focus_keys = self.focus_keys if self.final_bosses else ()
                 fire_mega_drone(self.drones, drone, center, self.target_keys, blocked_key, focus_keys)
                 drone.next_shot_time = now + MEGA_ATTACK_INTERVAL_MS
-            if drone.pos.distance_to(center) <= drone.radius + PLAYER_COLLISION_RADIUS:
+            if object_scale >= 1.0 and drone.pos.distance_to(center) <= drone.radius + PLAYER_COLLISION_RADIUS:
                 self.drones.remove(drone)
                 explode(self.particles, drone.pos, 12)
                 play_sound(self.explosion_sound)
@@ -3327,7 +3341,8 @@ class MissionEngine:
             if not defense_drone.active:
                 continue
             defense_pos = defense_drone_position(self.player_center, defense_drone)
-            object_dt = dt * self._object_time_scale(defense_pos)
+            object_scale = self._object_time_scale(defense_pos)
+            object_dt = dt * object_scale
             defense_drone.angle = (defense_drone.angle + math.tau * object_dt / DEFENSE_DRONE_ORBIT_SECONDS) % math.tau
             defense_pos = defense_drone_position(self.player_center, defense_drone)
 
@@ -3340,7 +3355,9 @@ class MissionEngine:
 
             if not defense_drone.active:
                 continue
-            if now >= defense_drone.next_fire_time:
+            if object_scale < 1.0:
+                defense_drone.next_fire_time += dt * 1000  # frozen: hold fire, pause cooldown
+            elif now >= defense_drone.next_fire_time:
                 target = self._defense_drone_target(defense_pos)
                 if target is not None:
                     defense_drone.last_shot_key = target.letter
