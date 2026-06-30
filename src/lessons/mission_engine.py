@@ -184,6 +184,13 @@ SPECIAL_KEY_LABELS = {
 }
 
 
+def _safe_int(value, default):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def apply_game_settings(settings):
     global STARTING_LIVES, ENERGY_SAVER_BONUS_CREDITS, MAX_LIFE_POWER_UPS_PER_MISSION
     global POWER_UP_DURATION_MS, POWER_UP_WARNING_MS, POWER_UP_MIN_INTERVAL_MS, POWER_UP_MAX_INTERVAL_MS
@@ -197,32 +204,36 @@ def apply_game_settings(settings):
     global ACCURACY_THRESHOLD_BANDS
     if not isinstance(settings, dict):
         return
-    STARTING_LIVES = int(settings.get("starting_lives", STARTING_LIVES))
-    player_limits.MAX_PLAYER_LIVES = int(settings.get("max_player_lives", player_limits.MAX_PLAYER_LIVES))
-    PLAYER_SHIELD_MAX_CHARGES = int(settings.get("player_shield_max_charges", PLAYER_SHIELD_MAX_CHARGES))
-    ENERGY_SAVER_BONUS_CREDITS = int(settings.get("energy_saver_bonus_credits", ENERGY_SAVER_BONUS_CREDITS))
-    MAX_LIFE_POWER_UPS_PER_MISSION = int(settings.get("max_life_power_ups_per_mission", MAX_LIFE_POWER_UPS_PER_MISSION))
-    POWER_UP_DURATION_MS = int(settings.get("power_up_duration_ms", POWER_UP_DURATION_MS))
-    POWER_UP_WARNING_MS = int(settings.get("power_up_warning_ms", POWER_UP_WARNING_MS))
-    POWER_UP_MIN_INTERVAL_MS = int(settings.get("power_up_min_interval_ms", POWER_UP_MIN_INTERVAL_MS))
-    POWER_UP_MAX_INTERVAL_MS = int(settings.get("power_up_max_interval_ms", POWER_UP_MAX_INTERVAL_MS))
-    PLAYER_SHIELD_START_LESSON = int(settings.get("player_shield_start_lesson", PLAYER_SHIELD_START_LESSON))
-    PLAYER_ACTIVE_SHIELD_DURATION_MS = int(settings.get("player_active_shield_duration_ms", PLAYER_ACTIVE_SHIELD_DURATION_MS))
-    PLAYER_ACTIVE_SHIELD_FADE_START_MS = int(settings.get("player_active_shield_fade_start_ms", PLAYER_ACTIVE_SHIELD_FADE_START_MS))
-    PLAYER_ACTIVE_SHIELD_EXTRA_HITS = int(settings.get("player_active_shield_extra_hits", PLAYER_ACTIVE_SHIELD_EXTRA_HITS))
-    DEFENSE_DRONE_FIRE_INTERVAL_MS = int(settings.get("defense_drone_fire_interval_ms", DEFENSE_DRONE_FIRE_INTERVAL_MS))
-    DEFENSE_DRONE_ACCURACY_GRACE_MS = int(settings.get("defense_drone_accuracy_grace_ms", DEFENSE_DRONE_ACCURACY_GRACE_MS))
-    MEGA_CHARGE_MAX_BLOCKS = int(settings.get("mega_charge_max_blocks", MEGA_CHARGE_MAX_BLOCKS))
-    MEGA_RECHARGE_INTERVAL_MS = int(settings.get("mega_recharge_interval_ms", MEGA_RECHARGE_INTERVAL_MS))
-    MEGA_RECHARGE_DELAY_MS = int(settings.get("mega_recharge_delay_ms", MEGA_RECHARGE_DELAY_MS))
-    MEGA_SHIELD_MIN_LEVEL = int(settings.get("mega_shield_min_level", MEGA_SHIELD_MIN_LEVEL))
-    MEGA_FINAL_KILL_LEVEL = int(settings.get("mega_final_kill_level", MEGA_FINAL_KILL_LEVEL))
-    FINAL_BOSS_ATTACK_INTERVAL_MS = int(settings.get("final_boss_attack_interval_ms", FINAL_BOSS_ATTACK_INTERVAL_MS))
-    FINAL_BOSS_SEMI_BOSS_FIRST_SPAWN_MS = int(
-        settings.get("final_boss_semi_boss_first_spawn_ms", FINAL_BOSS_SEMI_BOSS_FIRST_SPAWN_MS)
+    STARTING_LIVES = _safe_int(settings.get("starting_lives", STARTING_LIVES), STARTING_LIVES)
+    player_limits.MAX_PLAYER_LIVES = _safe_int(
+        settings.get("max_player_lives", player_limits.MAX_PLAYER_LIVES), player_limits.MAX_PLAYER_LIVES
     )
-    FINAL_BOSS_SEMI_BOSS_SPAWN_INTERVAL_MS = int(
-        settings.get("final_boss_semi_boss_spawn_interval_ms", FINAL_BOSS_SEMI_BOSS_SPAWN_INTERVAL_MS)
+    PLAYER_SHIELD_MAX_CHARGES = _safe_int(settings.get("player_shield_max_charges", PLAYER_SHIELD_MAX_CHARGES), PLAYER_SHIELD_MAX_CHARGES)
+    ENERGY_SAVER_BONUS_CREDITS = _safe_int(settings.get("energy_saver_bonus_credits", ENERGY_SAVER_BONUS_CREDITS), ENERGY_SAVER_BONUS_CREDITS)
+    MAX_LIFE_POWER_UPS_PER_MISSION = _safe_int(settings.get("max_life_power_ups_per_mission", MAX_LIFE_POWER_UPS_PER_MISSION), MAX_LIFE_POWER_UPS_PER_MISSION)
+    POWER_UP_DURATION_MS = _safe_int(settings.get("power_up_duration_ms", POWER_UP_DURATION_MS), POWER_UP_DURATION_MS)
+    POWER_UP_WARNING_MS = _safe_int(settings.get("power_up_warning_ms", POWER_UP_WARNING_MS), POWER_UP_WARNING_MS)
+    POWER_UP_MIN_INTERVAL_MS = _safe_int(settings.get("power_up_min_interval_ms", POWER_UP_MIN_INTERVAL_MS), POWER_UP_MIN_INTERVAL_MS)
+    POWER_UP_MAX_INTERVAL_MS = _safe_int(settings.get("power_up_max_interval_ms", POWER_UP_MAX_INTERVAL_MS), POWER_UP_MAX_INTERVAL_MS)
+    PLAYER_SHIELD_START_LESSON = _safe_int(settings.get("player_shield_start_lesson", PLAYER_SHIELD_START_LESSON), PLAYER_SHIELD_START_LESSON)
+    PLAYER_ACTIVE_SHIELD_DURATION_MS = _safe_int(settings.get("player_active_shield_duration_ms", PLAYER_ACTIVE_SHIELD_DURATION_MS), PLAYER_ACTIVE_SHIELD_DURATION_MS)
+    PLAYER_ACTIVE_SHIELD_FADE_START_MS = _safe_int(settings.get("player_active_shield_fade_start_ms", PLAYER_ACTIVE_SHIELD_FADE_START_MS), PLAYER_ACTIVE_SHIELD_FADE_START_MS)
+    PLAYER_ACTIVE_SHIELD_EXTRA_HITS = _safe_int(settings.get("player_active_shield_extra_hits", PLAYER_ACTIVE_SHIELD_EXTRA_HITS), PLAYER_ACTIVE_SHIELD_EXTRA_HITS)
+    DEFENSE_DRONE_FIRE_INTERVAL_MS = _safe_int(settings.get("defense_drone_fire_interval_ms", DEFENSE_DRONE_FIRE_INTERVAL_MS), DEFENSE_DRONE_FIRE_INTERVAL_MS)
+    DEFENSE_DRONE_ACCURACY_GRACE_MS = _safe_int(settings.get("defense_drone_accuracy_grace_ms", DEFENSE_DRONE_ACCURACY_GRACE_MS), DEFENSE_DRONE_ACCURACY_GRACE_MS)
+    MEGA_CHARGE_MAX_BLOCKS = _safe_int(settings.get("mega_charge_max_blocks", MEGA_CHARGE_MAX_BLOCKS), MEGA_CHARGE_MAX_BLOCKS)
+    MEGA_RECHARGE_INTERVAL_MS = _safe_int(settings.get("mega_recharge_interval_ms", MEGA_RECHARGE_INTERVAL_MS), MEGA_RECHARGE_INTERVAL_MS)
+    MEGA_RECHARGE_DELAY_MS = _safe_int(settings.get("mega_recharge_delay_ms", MEGA_RECHARGE_DELAY_MS), MEGA_RECHARGE_DELAY_MS)
+    MEGA_SHIELD_MIN_LEVEL = _safe_int(settings.get("mega_shield_min_level", MEGA_SHIELD_MIN_LEVEL), MEGA_SHIELD_MIN_LEVEL)
+    MEGA_FINAL_KILL_LEVEL = _safe_int(settings.get("mega_final_kill_level", MEGA_FINAL_KILL_LEVEL), MEGA_FINAL_KILL_LEVEL)
+    FINAL_BOSS_ATTACK_INTERVAL_MS = _safe_int(settings.get("final_boss_attack_interval_ms", FINAL_BOSS_ATTACK_INTERVAL_MS), FINAL_BOSS_ATTACK_INTERVAL_MS)
+    FINAL_BOSS_SEMI_BOSS_FIRST_SPAWN_MS = _safe_int(
+        settings.get("final_boss_semi_boss_first_spawn_ms", FINAL_BOSS_SEMI_BOSS_FIRST_SPAWN_MS),
+        FINAL_BOSS_SEMI_BOSS_FIRST_SPAWN_MS,
+    )
+    FINAL_BOSS_SEMI_BOSS_SPAWN_INTERVAL_MS = _safe_int(
+        settings.get("final_boss_semi_boss_spawn_interval_ms", FINAL_BOSS_SEMI_BOSS_SPAWN_INTERVAL_MS),
+        FINAL_BOSS_SEMI_BOSS_SPAWN_INTERVAL_MS,
     )
     counts = settings.get("final_boss_count_by_lesson", FINAL_BOSS_COUNT_BY_LESSON)
     FINAL_BOSS_COUNT_BY_LESSON = counts if isinstance(counts, dict) else {}
