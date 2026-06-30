@@ -113,6 +113,9 @@ class PlayerModelTests(unittest.TestCase):
         self.assertEqual(settings["spawn_rate_multiplier"], 2.2)
         self.assertFalse(settings["music_enabled"])
 
+        high_settings = normalize_mission_settings({"spawn_rate_multiplier": 6.4})
+        self.assertEqual(high_settings["spawn_rate_multiplier"], 5.0)
+
     def test_player_record_includes_default_mission_settings(self):
         player = create_player_record("Pilot")
 

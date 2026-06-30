@@ -2,7 +2,7 @@ Ok pilot... lesson 25.
 
 This mission adds 4 and 7.
 
-Main focus: 4 with left pointer, 7 with right pointer.
+Main focus: 4 with left pointer finger, 7 with right pointer finger.
 
 The first drones will favor the new keys. After that, expect everything you have learned so far.
 

@@ -2,7 +2,7 @@ Welcome back, pilot ... braces are next.
 
 Your new training keys are 'left brace' and 'right brace'.
 
-For { and }, hold left Shift and press the bracket keys with your right pinky.
+For { and }, hold left Shift and press the bracket keys with your right pinky finger.
 
 You are not starting over. Every key from the earlier missions can still show up.
 

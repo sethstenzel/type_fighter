@@ -1,7 +1,7 @@
 Ok rookie... lesson two starts now.
 
 This time, the drones are testing your middle fingers and your thumb control.
-In this lessen we are adding 'D', 'K', and Spacebar.
+In this lesson we are adding 'D', 'K', and Spacebar.
 
 When you see D, press the D key with your left middle finger.
 When you see K, press the K key with your right middle finger.

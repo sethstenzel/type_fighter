@@ -1,7 +1,7 @@
 Ok rookie... It's time to show us what You've got.
 
-You're training pod will be at the center of the screen.
-Enemy drones will appear and move toward your training pod. You're job is pretty straight forward... don't... let... them... hit you...
+Your training pod will be at the center of the screen.
+Enemy drones will appear and move toward your training pod. Your job is pretty straightforward... don't... let... them... hit you...
 
 Each drone will have a letter on it, press that letter on your keyboard to fire at and destroy the drone.
 Some drones will split into lesser drones if you don't destroy them in one shot.

@@ -106,8 +106,8 @@ def draw_keyboard_image(surface, rect, title_font, small_font):
     pygame.draw.rect(surface, (220, 244, 255), space_rect, 2, border_radius=7)
     render_key_label(surface, "space", small_font, (4, 10, 20), space_rect.center, space_rect.width - 24)
 
-    left_note = "Left middle -> D"
-    right_note = "Right middle -> K"
+    left_note = "Left middle finger -> D"
+    right_note = "Right middle finger -> K"
     thumb_note = "Either thumb -> ␣"
     surface.blit(small_font.render(left_note, True, TEXT_COLOR), (rect.x + 242, rect.y + 212))
     surface.blit(small_font.render(right_note, True, TEXT_COLOR), (rect.x + 508, rect.y + 212))

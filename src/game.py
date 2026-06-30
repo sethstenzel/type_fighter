@@ -628,6 +628,13 @@ def run_lesson(screen, clock, lesson, player):
             return result
 
 
+def run_lesson_from_menu(screen, clock, lesson, player):
+    result = run_lesson(screen, clock, lesson, player)
+    if result != "quit":
+        ensure_menu_music()
+    return result
+
+
 def create_player_screen(screen, clock, players):
     title_font = pygame.font.SysFont("arial", 46, bold=True)
     body_font = pygame.font.SysFont("arial", 24)
@@ -1967,7 +1974,7 @@ def menu_loop(screen, clock, players, player):
                         completed_index = selected
                         lesson_number = LESSONS[completed_index]["number"]
                         was_completed = lesson_number in set(player.get("completed_lessons", []))
-                        result = run_lesson(screen, clock, LESSONS[completed_index], player)
+                        result = run_lesson_from_menu(screen, clock, LESSONS[completed_index], player)
                         save_players(players)
                         if result == "quit":
                             return "quit"
@@ -2008,7 +2015,7 @@ def menu_loop(screen, clock, players, player):
                         if index < unlocked_count:
                             lesson_number = LESSONS[index]["number"]
                             was_completed = lesson_number in set(player.get("completed_lessons", []))
-                            result = run_lesson(screen, clock, LESSONS[index], player)
+                            result = run_lesson_from_menu(screen, clock, LESSONS[index], player)
                             save_players(players)
                             if result == "quit":
                                 return "quit"

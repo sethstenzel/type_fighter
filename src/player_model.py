@@ -12,6 +12,9 @@ DEFAULT_MISSION_SETTINGS = {
     "spawn_rate_multiplier": 1.0,
     "music_enabled": True,
 }
+MIN_SPAWN_RATE_MULTIPLIER = 1.0
+MAX_SPAWN_RATE_MULTIPLIER = 5.0
+SPAWN_RATE_MULTIPLIER_STEP = 0.2
 PLAYER_SHIELD_BASE_CHARGES = 3
 CONSUMABLE_UPGRADE_IDS = {"extra_life", "shield_charge", "shield_charge_3"}
 SINGLE_ENTRY_UPGRADE_IDS = {"drone_splash_color", "ammo_charge_color"}
@@ -126,8 +129,11 @@ def normalize_mission_settings(settings):
         multiplier = float(settings.get("spawn_rate_multiplier", normalized["spawn_rate_multiplier"]))
     except (TypeError, ValueError):
         multiplier = normalized["spawn_rate_multiplier"]
-    multiplier = round(multiplier / 0.2) * 0.2
-    normalized["spawn_rate_multiplier"] = max(1.0, min(3.0, round(multiplier, 1)))
+    multiplier = round(multiplier / SPAWN_RATE_MULTIPLIER_STEP) * SPAWN_RATE_MULTIPLIER_STEP
+    normalized["spawn_rate_multiplier"] = max(
+        MIN_SPAWN_RATE_MULTIPLIER,
+        min(MAX_SPAWN_RATE_MULTIPLIER, round(multiplier, 1)),
+    )
     return normalized
 
 

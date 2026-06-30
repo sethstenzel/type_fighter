@@ -2,7 +2,7 @@ Ok pilot... lesson 6.
 
 This mission adds R and U.
 
-Main focus: R with left pointer, U with right pointer.
+Main focus: R with left pointer finger, U with right pointer finger.
 
 The first drones will favor the new keys. After that, expect everything you have learned so far.
 

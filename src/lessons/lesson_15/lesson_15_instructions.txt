@@ -2,7 +2,7 @@ Ok pilot... lesson 15.
 
 This mission adds B and N.
 
-Main focus: B with left pointer, N with right pointer.
+Main focus: B with left pointer finger, N with right pointer finger.
 
 The first drones will favor the new keys. After that, expect everything you have learned so far.
 

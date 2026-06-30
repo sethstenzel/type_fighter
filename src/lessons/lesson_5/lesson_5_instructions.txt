@@ -2,7 +2,7 @@ Ok pilot... lesson 5.
 
 This mission adds G and H.
 
-Main focus: G with left pointer, H with right pointer.
+Main focus: G with left pointer finger, H with right pointer finger.
 
 The first drones will favor the new keys. After that, expect everything you have learned so far.
 

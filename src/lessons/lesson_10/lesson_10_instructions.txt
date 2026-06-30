@@ -2,7 +2,7 @@ Ok pilot... lesson 10.
 
 This mission adds T and Y.
 
-Main focus: T with left pointer, Y with right pointer.
+Main focus: T with left pointer finger, Y with right pointer finger.
 
 The first drones will favor the new keys. After that, expect everything you have learned so far.
 

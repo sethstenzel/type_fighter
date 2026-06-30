@@ -2,7 +2,7 @@ Ok pilot... lesson 11.
 
 This mission adds V and M.
 
-Main focus: V with left pointer, M with right pointer.
+Main focus: V with left pointer finger, M with right pointer finger.
 
 The first drones will favor the new keys. After that, expect everything you have learned so far.
 

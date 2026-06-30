@@ -623,6 +623,9 @@ DEFAULT_MISSION_SETTINGS = {
     "spawn_rate_multiplier": 1.0,
     "music_enabled": True,
 }
+MIN_SPAWN_RATE_MULTIPLIER = 1.0
+MAX_SPAWN_RATE_MULTIPLIER = 5.0
+SPAWN_RATE_MULTIPLIER_STEP = 0.2
 
 
 def normalize_mission_settings(settings):
@@ -636,8 +639,11 @@ def normalize_mission_settings(settings):
         multiplier = float(settings.get("spawn_rate_multiplier", normalized["spawn_rate_multiplier"]))
     except (TypeError, ValueError):
         multiplier = normalized["spawn_rate_multiplier"]
-    multiplier = round(multiplier / 0.2) * 0.2
-    normalized["spawn_rate_multiplier"] = max(1.0, min(3.0, round(multiplier, 1)))
+    multiplier = round(multiplier / SPAWN_RATE_MULTIPLIER_STEP) * SPAWN_RATE_MULTIPLIER_STEP
+    normalized["spawn_rate_multiplier"] = max(
+        MIN_SPAWN_RATE_MULTIPLIER,
+        min(MAX_SPAWN_RATE_MULTIPLIER, round(multiplier, 1)),
+    )
     return normalized
 
 
@@ -1837,7 +1843,9 @@ def draw_mission_settings_modal(screen, settings, unlocks, controls, title_font,
     screen.blit(slider_label, (modal_rect.x + 34, slider_y - 42))
     track_rect = pygame.Rect(modal_rect.x + 38, slider_y, modal_rect.width - 168, 8)
     pygame.draw.rect(screen, (43, 57, 89), track_rect, border_radius=4)
-    normalized = (settings["spawn_rate_multiplier"] - 1.0) / 2.0
+    normalized = (
+        settings["spawn_rate_multiplier"] - MIN_SPAWN_RATE_MULTIPLIER
+    ) / (MAX_SPAWN_RATE_MULTIPLIER - MIN_SPAWN_RATE_MULTIPLIER)
     knob_x = track_rect.x + int(track_rect.width * normalized)
     knob_rect = pygame.Rect(0, 0, 22, 34)
     knob_rect.center = (knob_x, track_rect.centery)
@@ -1845,7 +1853,7 @@ def draw_mission_settings_modal(screen, settings, unlocks, controls, title_font,
     controls["spawn_rate_track"] = track_rect
     controls["spawn_rate_knob"] = knob_rect
     min_label = small_font.render("1x", True, MUTED_TEXT)
-    max_label = small_font.render("3x", True, MUTED_TEXT)
+    max_label = small_font.render("5x", True, MUTED_TEXT)
     screen.blit(min_label, (track_rect.x, track_rect.bottom + 12))
     screen.blit(max_label, (track_rect.right - max_label.get_width(), track_rect.bottom + 12))
 
@@ -1860,8 +1868,11 @@ def set_spawn_rate_from_mouse(settings, track_rect, mouse_x):
     if track_rect.width <= 0:
         return
     ratio = max(0, min(1, (mouse_x - track_rect.x) / track_rect.width))
-    value = 1.0 + ratio * 2.0
-    settings["spawn_rate_multiplier"] = max(1.0, min(3.0, round(round(value / 0.2) * 0.2, 1)))
+    value = MIN_SPAWN_RATE_MULTIPLIER + ratio * (MAX_SPAWN_RATE_MULTIPLIER - MIN_SPAWN_RATE_MULTIPLIER)
+    settings["spawn_rate_multiplier"] = max(
+        MIN_SPAWN_RATE_MULTIPLIER,
+        min(MAX_SPAWN_RATE_MULTIPLIER, round(round(value / SPAWN_RATE_MULTIPLIER_STEP) * SPAWN_RATE_MULTIPLIER_STEP, 1)),
+    )
 
 
 def save_mission_settings(player, settings):
