@@ -74,6 +74,11 @@ DRONE_PIXELS_PER_ROTATION = 60
 TURRET_TURN_SPEED = 25
 TURRET_FIRE_ANGLE_THRESHOLD = 0.08
 TURRET_FIRE_DELAY_MS = 90
+# Cheat 14 auto-fire: engage drones within this fraction of half the screen
+# height, toggled by tapping Left Ctrl this many times within the window.
+AUTO_FIRE_RANGE_RATIO = 0.9
+AUTO_FIRE_TOGGLE_TAPS = 5
+AUTO_FIRE_TOGGLE_WINDOW_MS = 1500
 SHOT_IMAGE_SIZE = 22
 SHOT_TRAIL_INTERVAL_MS = 12
 SHOT_ROTATIONS_PER_SECOND = 2
@@ -87,6 +92,10 @@ DEFENSE_DRONE_SHOT_RADIUS = 4
 DEFENSE_DRONE_COLLISION_RADIUS = 16
 DEFENSE_DRONE_LINE_OF_SIGHT_BLOCK_RADIUS = POD_IMAGE_SIZE // 2
 DEFENSE_DRONE_ACCURACY_GRACE_MS = 3000
+# Defense drones only fire at enemies within this fraction of the smaller screen
+# dimension from the pod, so they wait for drones to approach instead of picking
+# off ones that are still far away / off screen.
+DEFENSE_DRONE_ENGAGE_RANGE_RATIO = 0.9
 
 START_SPAWN_INTERVAL_MS = 6000
 MIN_SPAWN_INTERVAL_MS = 2000
@@ -151,7 +160,7 @@ ACCURACY_SYSTEM_START_LESSON = 1
 TIME_STOP_UNLOCK_LESSON = 26      # completing this lesson unlocks the ability
 TIME_STOP_START_LESSON = 27       # power-ups only spawn from this lesson on
 TIME_STOP_MAX_CHARGES = 3
-TIME_STOP_DURATION_MS = 10000     # total time-stop duration
+TIME_STOP_DURATION_MS = 7000      # total time-stop duration
 TIME_STOP_EXPAND_MS = 450         # ring sweep-out (freezes nearest objects first)
 TIME_STOP_CONTRACT_MS = 1500      # slow recede at the end (un-freezes farthest first)
 TIME_STOP_MIN_SPEED_SCALE = 0.0   # frozen objects' speed while inside the ring (0 = full stop)
@@ -1115,6 +1124,18 @@ def nearest_drone_for_key(drones, key, center):
     return min(matches, key=lambda drone: drone.pos.distance_squared_to(center))
 
 
+def nearest_targetable_drone_in_range(drones, center, max_range):
+    max_sq = max_range * max_range
+    matches = [
+        drone
+        for drone in drones
+        if can_target_drone(drone) and drone.pos.distance_squared_to(center) <= max_sq
+    ]
+    if not matches:
+        return None
+    return min(matches, key=lambda drone: drone.pos.distance_squared_to(center))
+
+
 def angle_delta(current, target):
     return (target - current + math.pi) % math.tau - math.pi
 
@@ -1953,11 +1974,16 @@ def draw_end_screen(
     accuracy_percent = 100 if accuracy_inputs == 0 else round(accurate_inputs * 100 / accuracy_inputs)
     # `score` is the grand total (base + bonus). Show its components plus the total.
     base_points = max(0, score - bonus_points)
+    # Each drone is treated as one 5-letter word (avg English word length), so
+    # words typed == drones destroyed and WPM = drones / minutes.
+    minutes = level_time_ms / 60000 if level_time_ms > 0 else 0
+    wpm = round(destroyed_count / minutes) if minutes > 0 else 0
     rows = [
         ("Points", str(base_points)),
         ("Bonus points", str(bonus_points)),
         ("Total level score", str(score)),
         ("Time", format_mission_time(level_time_ms)),
+        ("WPM", str(wpm)),
         ("Hits taken", str(hits_taken)),
         ("Drones destroyed", f"{destroyed_count}/{drone_target}"),
         ("Accuracy", f"{accuracy_percent}%"),
@@ -2103,13 +2129,19 @@ def save_mission_settings(player, settings):
         player["mission_settings"] = dict(settings)
 
 
-def mission_settings_modal(screen, clock, player, settings, unlocks):
+def mission_settings_modal(screen, clock, player, settings, unlocks, on_button_press=None):
     title_font = pygame.font.SysFont("arial", 40, bold=True)
     body_font = pygame.font.SysFont("arial", 23)
     small_font = pygame.font.SysFont("arial", 16)
     controls = {}
     dragging_slider = False
     background = screen.copy()
+
+    def close():
+        if on_button_press is not None:
+            on_button_press()
+        return None
+
     while True:
         screen = pygame.display.get_surface()
         for event in pygame.event.get():
@@ -2119,10 +2151,10 @@ def mission_settings_modal(screen, clock, player, settings, unlocks):
                 screen = enforce_min_window_size(screen)
             if event.type == pygame.KEYDOWN:
                 if event.key in (pygame.K_ESCAPE, pygame.K_o, pygame.K_RETURN, pygame.K_SPACE):
-                    return None
+                    return close()
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 if controls.get("close") and controls["close"].collidepoint(event.pos):
-                    return None
+                    return close()
                 if controls.get("spawn_rate_track") and controls["spawn_rate_track"].collidepoint(event.pos):
                     set_spawn_rate_from_mouse(settings, controls["spawn_rate_track"], event.pos[0])
                     save_mission_settings(player, settings)
@@ -2231,7 +2263,7 @@ def draw_mission_briefing_modal(screen, lesson_number, instructions_text, hint_i
     return button_rect, max_instruction_scroll, scrollbar_track_rect, scrollbar_thumb_rect
 
 
-def pause_menu(screen, clock):
+def pause_menu(screen, clock, button_sound=None):
     title_font = pygame.font.SysFont("arial", 54, bold=True)
     button_font = pygame.font.SysFont("arial", 28, bold=True)
     small_font = pygame.font.SysFont("arial", 18)
@@ -2266,9 +2298,12 @@ def pause_menu(screen, clock):
                     return "resume"
                 if event.key in (pygame.K_UP, pygame.K_w):
                     selected = (selected - 1) % len(actions)
+                    play_sound(button_sound)
                 if event.key in (pygame.K_DOWN, pygame.K_s):
                     selected = (selected + 1) % len(actions)
+                    play_sound(button_sound)
                 if event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                    play_sound(button_sound)
                     return actions[selected]
                 if event.key == pygame.K_r:
                     return "restart"
@@ -2279,11 +2314,14 @@ def pause_menu(screen, clock):
                 # cursor must not override keyboard navigation each frame.
                 for index, rect in enumerate(buttons):
                     if rect.collidepoint(event.pos):
-                        selected = index
+                        if index != selected:
+                            selected = index
+                            play_sound(button_sound)
                         break
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 for index, rect in enumerate(buttons):
                     if rect.collidepoint(event.pos):
+                        play_sound(button_sound)
                         return actions[index]
 
         overlay = pygame.Surface((width, height), pygame.SRCALPHA)
@@ -2340,11 +2378,14 @@ class MissionEngine:
         self.hint_texts = load_json_object(self.lesson_dir / f"mission_hints_l{self.lesson_number}.json")
         self.laser_sound = load_sound(self.sfx_dir / "laser.ogg", 0.55)
         self.explosion_sound = load_sound(self.sfx_dir / "explosion.ogg", 0.75)
+        if cheats.is_enabled("13"):
+            self.explosion_sound = None  # cheat: silence enemy explosion sounds
         self.health_sound = load_sound(self.sfx_dir / "health.ogg", 0.85)
         self.shield_up_sound = load_sound(self.sfx_dir / "shield_up.wav", 0.85)
         self.time_stop_sound = load_sound(self.sfx_dir / "time_stop.wav", 0.85)
         self.time_stop_ending_sound = load_sound(self.sfx_dir / "time_stop_ending.wav", 0.85)
         self.split_sound = load_sound(self.sfx_dir / "split.ogg", 0.75)
+        self.button_press_sound = load_sound(self.sfx_dir / "ui_button_press.wav", 0.5)
         self.boss_sound = load_sound(self.sfx_dir / "boss.ogg", 0.85)
         self.victory_sound = load_sound(self.sfx_dir / "victory.wav", 0.9)
         self.warning_sound = load_sound(self.sfx_dir / "warning.wav", 0.8)
@@ -2435,6 +2476,10 @@ class MissionEngine:
         self._ring_overlay = None
         self._time_stop_ending_played = False
         self.space_tap_times = []
+        # Cheat 14 auto-fire: on by default while the cheat is active; toggled
+        # by tapping Left Ctrl AUTO_FIRE_TOGGLE_TAPS times quickly.
+        self.auto_fire_enabled = True
+        self.ctrl_tap_times = []
         self.credits_awarded = False
         self.lives = max(
             STARTING_LIVES,
@@ -2475,6 +2520,8 @@ class MissionEngine:
 
     def _spawn_interval(self):
         multiplier = max(1.0, float(self.mission_settings.get("spawn_rate_multiplier", 1.0)))
+        if cheats.is_enabled("15"):
+            multiplier = max(multiplier, 10.0)  # cheat: 10x spawn rate
         return max(80, int(random_spawn_interval(self.lesson_number) / multiplier))
 
     def _create_defense_drones(self):
@@ -2737,7 +2784,8 @@ class MissionEngine:
 
     def _record_inaccurate_key(self, key, now=None):
         self._record_inaccurate_input()
-        play_sound(self.limited_sound)
+        if not cheats.is_enabled("12"):
+            play_sound(self.limited_sound)
         if len(self.inaccurate_keys) < 4:
             self.inaccurate_keys.append(key)
 
@@ -2797,6 +2845,8 @@ class MissionEngine:
                 "high_score_goal": max(0, self.high_score_goal),
                 "quick_time_goal_ms": max(0, self.quick_defender_goal_ms),
             }
+        if cheats.is_enabled("14"):
+            self._log_auto_fire_run(won)
         return draw_end_screen(
             self.screen,
             self.clock,
@@ -2811,6 +2861,27 @@ class MissionEngine:
             self.inaccurate_keys,
             self.bonus_points,
             self.level_time_ms,
+        )
+
+    def _log_auto_fire_run(self, won):
+        # cheats.log entry written whenever a level is played with the auto-fire
+        # turret cheat on: high score, time, and current spawn speed.
+        multiplier = max(1.0, float(self.mission_settings.get("spawn_rate_multiplier", 1.0)))
+        if cheats.is_enabled("15"):
+            multiplier = max(multiplier, 10.0)
+        cheats.log_cheat_event(
+            "auto-fire level=%d result=%s score=%d high_score_goal=%d time=%s "
+            "time_ms=%d spawn_rate=%.1fx spawn_interval_ms=%d"
+            % (
+                self.lesson_number,
+                "won" if won else "lost",
+                int(max(0, self.score)),
+                int(max(0, self.high_score_goal)),
+                format_mission_time(self.level_time_ms),
+                int(max(0, self.level_time_ms)),
+                multiplier,
+                int(self.current_spawn_interval_ms),
+            )
         )
 
     def _boss_player_target_center(self):
@@ -2936,6 +3007,69 @@ class MissionEngine:
             return self._activate_time_stop(now)
         return False
 
+    def _register_ctrl_tap(self, now):
+        # Returns True once Left Ctrl has been tapped enough times in the window.
+        self.ctrl_tap_times = [t for t in self.ctrl_tap_times if now - t <= AUTO_FIRE_TOGGLE_WINDOW_MS]
+        self.ctrl_tap_times.append(now)
+        if len(self.ctrl_tap_times) >= AUTO_FIRE_TOGGLE_TAPS:
+            self.ctrl_tap_times = []
+            return True
+        return False
+
+    def _auto_fire_turret(self, now):
+        # Cheat 14: queue a shot at the nearest in-range drone. One at a time so
+        # the turret works the queue exactly as it does for typed shots.
+        if self.pending_shots:
+            return
+        # On the final boss, unload a full mega shot once charged to destroy it.
+        if (
+            self.final_bosses
+            and self._boss_perspective_ready()
+            and self.player_mega_shot_available
+            and self.mega_charge_blocks >= MEGA_FINAL_KILL_LEVEL
+        ):
+            queued_mega = queue_mega_shot(
+                self.drones,
+                self.final_bosses,
+                self.pending_shots,
+                self.final_bosses[0].letter,
+                self.player_center,
+                self.mega_charge_blocks,
+                now,
+                self.player_advanced_mega_shot_available,
+            )
+            if queued_mega:
+                self.mega_charge_blocks = max(0, self.mega_charge_blocks - queued_mega)
+                self.next_mega_recharge_time = now + MEGA_RECHARGE_DELAY_MS
+                return
+        max_range = AUTO_FIRE_RANGE_RATIO * self.screen.get_size()[1] / 2
+        target = nearest_targetable_drone_in_range(self.drones, self.player_center, max_range)
+        if target is None:
+            return
+        # Orange (2 hp) and red (3+ hp) drones: mega them when we have the charge.
+        if (
+            self.player_mega_shot_available
+            and not target.is_mega
+            and target.max_hp >= 2
+            and self.mega_charge_blocks >= mega_charge_required_for_target(target)
+        ):
+            queued_mega = queue_mega_shot(
+                self.drones,
+                [],
+                self.pending_shots,
+                target.letter,
+                self.player_center,
+                mega_charge_required_for_target(target),
+                now,
+                self.player_advanced_mega_shot_available,
+            )
+            if queued_mega:
+                self.mega_charge_blocks = max(0, self.mega_charge_blocks - queued_mega)
+                self.next_mega_recharge_time = now + MEGA_RECHARGE_DELAY_MS
+                return
+        target.incoming_damage += 1
+        self.pending_shots.append(PendingShot(target=target, damage=1, created_at=now))
+
     def _begin_frame(self):
         dt = self.clock.tick(60) / 1000
         now = pygame.time.get_ticks()
@@ -2952,9 +3086,16 @@ class MissionEngine:
         # The background star field stops drifting during a time stop.
         if self.time_stop is None:
             update_star_field(self.stars, dt)
-        if self.mission_start_ticks is not None:
+        # The level timer is frozen while a time stop is active and while the
+        # level is transitioning to the final boss (its pan/approach), so that
+        # idle time is not counted against the player.
+        if (
+            self.mission_start_ticks is not None
+            and self.time_stop is None
+            and not self._firing_locked_for_boss_intro()
+        ):
             self.level_time_ms = min(
-                MAX_LEVEL_TIME_MS, self.level_time_ms + dt * 1000 * self.current_time_scale
+                MAX_LEVEL_TIME_MS, self.level_time_ms + dt * 1000
             )
         if self.player_mega_shot_available and self.mega_charge_blocks < MEGA_CHARGE_MAX_BLOCKS:
             if self.next_mega_recharge_time and now >= self.next_mega_recharge_time:
@@ -3025,6 +3166,14 @@ class MissionEngine:
         return rects
 
     def _spawn_entities(self, now):
+        if self.time_stop is not None:
+            # No new spawns (drones, mini-bosses, or power-ups) while time is
+            # stopped. Hold the spawn timers ahead of `now` so nothing bursts out
+            # the instant the stop ends.
+            self.next_spawn_time = now + self.current_spawn_interval_ms
+            if self.next_power_up_spawn_time <= now:
+                self.next_power_up_spawn_time = now + 1
+            return
         has_no_standard_play_drones = (
             not self.final_bosses
             and not self.drones
@@ -3052,11 +3201,6 @@ class MissionEngine:
             )
             if drone.is_mega:
                 play_sound(self.boss_sound)
-                # A purple drone that spawns during a time stop must not spawn
-                # more drones until the stop has ended.
-                if self.time_stop is not None:
-                    remaining = max(0, self.time_stop.duration_ms - self.time_stop.elapsed_ms)
-                    drone.next_shot_time = now + int(remaining) + MEGA_ATTACK_INTERVAL_MS
             self.next_spawn_time = now + self.current_spawn_interval_ms
 
         if self.power_up is not None and now >= self.power_up.expires_at:
@@ -3382,10 +3526,13 @@ class MissionEngine:
         return closest.distance_to(self.player_center) > DEFENSE_DRONE_LINE_OF_SIGHT_BLOCK_RADIUS
 
     def _defense_drone_target(self, defense_pos):
+        width, height = self.screen.get_size()
+        engage_radius = min(width, height) * DEFENSE_DRONE_ENGAGE_RANGE_RATIO
         candidates = [
             drone
             for drone in self.drones
-            if self._defense_drone_has_line_of_sight(defense_pos, drone.pos)
+            if drone.pos.distance_to(self.player_center) <= engage_radius
+            and self._defense_drone_has_line_of_sight(defense_pos, drone.pos)
             and defense_drone_remaining_shot_capacity(drone) > 0
         ]
         return random.choice(candidates) if candidates else None
@@ -3491,7 +3638,7 @@ class MissionEngine:
                         if pygame.mixer.get_init():
                             pygame.mixer.music.pause()
                         pause_started_at = pygame.time.get_ticks()
-                        pause_result = pause_menu(self.screen, self.clock)
+                        pause_result = pause_menu(self.screen, self.clock, self.button_press_sound)
                         if pause_result == "resume":
                             self._shift_gameplay_timers(pygame.time.get_ticks() - pause_started_at)
                             pygame.mouse.set_visible(False)
@@ -3511,6 +3658,11 @@ class MissionEngine:
                             return self._finish("restart")
                         return self._finish("menu")
                     pressed_key = event_to_lesson_key(event, self.lesson_number)
+                    if cheats.is_enabled("14") and event.key == pygame.K_LCTRL:
+                        # Tap Left Ctrl 5x quickly to toggle auto-fire on/off.
+                        if self._register_ctrl_tap(now):
+                            self.auto_fire_enabled = not self.auto_fire_enabled
+                        continue
                     if event.key == pygame.K_SPACE:
                         if self.player_mega_shot_available:
                             self.space_held = True
@@ -3574,6 +3726,8 @@ class MissionEngine:
                     if event.key == pygame.K_SPACE:
                         self.space_held = False
 
+            if cheats.is_enabled("14") and self.auto_fire_enabled:
+                self._auto_fire_turret(now)
             self._process_pending_shots(now, dt)
 
             self._spawn_entities(now)

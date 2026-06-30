@@ -30,6 +30,10 @@ AVAILABLE_CHEATS = {
     "0": "Full reset: credits, score, unlocked levels, and achievements cleared",
     "10": "Mark every level as unlocked in the save (persists)",
     "11": "Unlock every training mission in the menu for this run (no save change)",
+    "12": "Disable the wrong-key error sound",
+    "13": "Disable the drone explosion sound when they are destroyed",
+    "14": "Auto-fire the turret at nearby drones (toggle with Left Ctrl x5)",
+    "15": "Increase the drone spawn rate to 10x",
 }
 
 CHEAT_LIVES = 99
@@ -80,6 +84,26 @@ def is_enabled(name):
 
 def enabled_cheats():
     return set(_enabled)
+
+
+def log_cheat_event(message):
+    """Append a timestamped line to cheats.log in the user data dir.
+
+    Best-effort: never raises (cheat logging must not interfere with play).
+    """
+    try:
+        import datetime
+
+        from player_storage_sqlite import user_data_dir
+
+        data_dir = user_data_dir()
+        data_dir.mkdir(parents=True, exist_ok=True)
+        log_path = data_dir / "cheats.log"
+        stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open(log_path, "a", encoding="utf-8") as handle:
+            handle.write(f"{stamp} {message}\n")
+    except Exception:
+        pass
 
 
 def _total_lessons():

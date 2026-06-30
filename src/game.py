@@ -735,7 +735,6 @@ def player_select_loop(screen, clock):
         if not players:
             return
         selected = (selected + step) % len(players)
-        play_menu_beep()
         delete_confirm = False
         suppress_hover_until_redraw = True
 
@@ -778,6 +777,7 @@ def player_select_loop(screen, clock):
                 elif event.key in (pygame.K_UP, pygame.K_w) and players:
                     navigate(-1)
                 elif event.key in (pygame.K_RETURN, pygame.K_SPACE) and players:
+                    play_button_press()
                     return players, players[selected]
             if event.type == pygame.MOUSEBUTTONDOWN and players:
                 if event.button == 1:
@@ -787,6 +787,7 @@ def player_select_loop(screen, clock):
                         continue
                     for index, rect in player_rects:
                         if rect.collidepoint(event.pos):
+                            play_button_press()
                             return players, players[index]
             if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
                 dragging_scrollbar = False
@@ -802,7 +803,6 @@ def player_select_loop(screen, clock):
                 new_selected = min(len(players) - 1, first_visible + max(0, visible_rows - 1))
                 if new_selected != selected:
                     selected = new_selected
-                    play_menu_beep()
                 delete_confirm = False
             elif event.type == pygame.MOUSEMOTION and players:
                 if suppress_hover_until_redraw:
@@ -811,14 +811,12 @@ def player_select_loop(screen, clock):
                     if rect.collidepoint(event.pos):
                         if index != selected:
                             selected = index
-                            play_menu_beep()
                             delete_confirm = False
                         break
             if event.type == pygame.MOUSEWHEEL and players:
                 step, last_wheel_scroll_time = should_apply_menu_wheel(event, last_wheel_scroll_time)
                 if step:
                     selected = (selected + step) % len(players)
-                    play_menu_beep()
                     delete_confirm = False
 
         # Hold Up/Down (or W/S) to keep moving through the list (~3x/second).
@@ -1074,6 +1072,10 @@ def stop_menu_music(fade_ms=700):
 
 def play_menu_beep():
     play_ui_sound(load_ui_sound(BASE_DIR / "sfx" / "beep.wav", 0.45))
+
+
+def play_button_press():
+    play_ui_sound(load_ui_sound(BASE_DIR / "sfx" / "ui_button_press.wav", 0.5))
 
 
 def load_json_dict(path):
@@ -1352,6 +1354,7 @@ def achievements_modal_loop(screen, clock, player):
                 return "quit"
             if event.type == pygame.KEYDOWN:
                 if event.key in (pygame.K_ESCAPE, pygame.K_RETURN, pygame.K_SPACE):
+                    play_button_press()
                     return None
                 if event.key in (pygame.K_DOWN, pygame.K_s):
                     scroll += 1
@@ -1368,6 +1371,7 @@ def achievements_modal_loop(screen, clock, player):
                     scrollbar_drag_offset = event.pos[1] - thumb_rect.y
                     continue
                 if close_rect.collidepoint(event.pos):
+                    play_button_press()
                     return None
             if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
                 dragging_scrollbar = False
@@ -1460,9 +1464,11 @@ def reward_modal_loop(screen, clock, reward, background):
                 return "quit"
             if event.type == pygame.KEYDOWN:
                 if event.key in (pygame.K_ESCAPE, pygame.K_RETURN, pygame.K_SPACE):
+                    play_button_press()
                     return None
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 if ok_rect.collidepoint(event.pos):
+                    play_button_press()
                     return None
 
         screen = pygame.display.get_surface()
@@ -1684,16 +1690,21 @@ def confirm_purchase_modal(screen, clock, upgrade, player):
                 screen = enforce_min_window_size(screen)
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
+                    play_button_press()
                     return False
                 if event.key in (pygame.K_RETURN, pygame.K_SPACE, pygame.K_y):
+                    play_button_press()
                     return True
                 if event.key in (pygame.K_n, pygame.K_BACKSPACE):
+                    play_button_press()
                     return False
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 mouse_pos = event.pos
                 if confirm_rect.collidepoint(mouse_pos):
+                    play_button_press()
                     return True
                 if cancel_rect.collidepoint(mouse_pos):
+                    play_button_press()
                     return False
 
         screen = pygame.display.get_surface()
@@ -1796,33 +1807,37 @@ def sell_upgrade_modal(screen, clock, upgrade, player):
                 return "quit"
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
+                    play_button_press()
                     return None
                 if event.key in (pygame.K_UP, pygame.K_w):
                     new_quantity = min(max_quantity, quantity + 1)
                     if new_quantity != quantity:
                         quantity = new_quantity
-                        play_menu_beep()
+                        play_button_press()
                 if event.key in (pygame.K_DOWN, pygame.K_s):
                     new_quantity = max(1, quantity - 1)
                     if new_quantity != quantity:
                         quantity = new_quantity
-                        play_menu_beep()
+                        play_button_press()
                 if event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                    play_button_press()
                     return quantity
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 if up_rect.collidepoint(event.pos):
                     new_quantity = min(max_quantity, quantity + 1)
                     if new_quantity != quantity:
                         quantity = new_quantity
-                        play_menu_beep()
+                        play_button_press()
                 elif down_rect.collidepoint(event.pos):
                     new_quantity = max(1, quantity - 1)
                     if new_quantity != quantity:
                         quantity = new_quantity
-                        play_menu_beep()
+                        play_button_press()
                 elif sell_rect.collidepoint(event.pos):
+                    play_button_press()
                     return quantity
                 elif cancel_rect.collidepoint(event.pos):
+                    play_button_press()
                     return None
 
         screen = pygame.display.get_surface()
@@ -1963,6 +1978,7 @@ def upgrades_modal_loop(screen, clock, players, player):
                     return None
                 for action, index, rect in action_rects:
                     if rect.collidepoint(event.pos):
+                        play_button_press()
                         if action == "sell":
                             result = attempt_upgrade_sale(screen, clock, players, player, UPGRADE_CATALOG[index])
                         else:
@@ -2024,17 +2040,6 @@ def attempt_upgrade_sale(screen, clock, players, player, upgrade):
     return None
 
 
-def _draw_rhombus_badge(screen, center, radius, fill, edge):
-    points = [
-        (center[0], center[1] - radius),
-        (center[0] + radius, center[1]),
-        (center[0], center[1] + radius),
-        (center[0] - radius, center[1]),
-    ]
-    pygame.draw.polygon(screen, fill, points)
-    pygame.draw.polygon(screen, edge, points, 2)
-
-
 def _draw_hexagon_badge(screen, center, radius, fill, edge):
     points = [
         (
@@ -2047,28 +2052,47 @@ def _draw_hexagon_badge(screen, center, radius, fill, edge):
     pygame.draw.polygon(screen, edge, points, 2)
 
 
+scaled_badge_image_cache = {}
+
+
+def badge_image(image_name, size):
+    # Load + scale a badge graphic once and cache the scaled surface (the source
+    # PNGs are large, so per-frame smoothscale would be costly). Returns None if
+    # the graphic is missing, so callers can fall back to drawn shapes.
+    cache_key = (image_name, size)
+    if cache_key not in scaled_badge_image_cache:
+        image = load_ui_image(BASE_DIR / "gfx" / "badges" / image_name)
+        if image is not None:
+            image = pygame.transform.smoothscale(image, (size, size))
+        scaled_badge_image_cache[cache_key] = image
+    return scaled_badge_image_cache[cache_key]
+
+
 def draw_lesson_badges(screen, card_rect, lesson_number, player, font):
     # Earned-badge markers on a mission card, laid out right-to-left.
     badges = []
     if lesson_number in set(normalize_lesson_number_list(player.get("perfect_lessons", []))):
-        badges.append(("P", "rhombus", (255, 190, 68), (255, 236, 156), (42, 28, 8)))
+        badges.append(("P", "perfect_badge.png", (255, 190, 68), (255, 236, 156), (42, 28, 8)))
     if lesson_number in set(normalize_lesson_number_list(player.get("high_score_lessons", []))):
-        badges.append(("H", "rhombus", (116, 211, 255), (208, 240, 255), (6, 28, 42)))
+        badges.append(("H", "high_scorer_badge.png", (116, 211, 255), (208, 240, 255), (6, 28, 42)))
     if lesson_number in set(normalize_lesson_number_list(player.get("quick_lessons", []))):
-        badges.append(("D", "hexagon", (88, 214, 141), (200, 245, 214), (6, 40, 22)))
+        badges.append(("D", "quick_defender_badge.png", (88, 214, 141), (200, 245, 214), (6, 40, 22)))
     radius = 15
+    image_size = int(radius * 2.6)
     cx = card_rect.right - 34
-    for letter, shape, fill, edge, text_color in badges:
+    for letter, image_name, fill, edge, text_color in badges:
         center = (cx, card_rect.centery)
-        if shape == "rhombus":
-            _draw_rhombus_badge(screen, center, radius, fill, edge)
+        image = badge_image(image_name, image_size)
+        if image is not None:
+            screen.blit(image, image.get_rect(center=center))
         else:
+            # Fall back to a drawn hexagon with the badge letter.
             _draw_hexagon_badge(screen, center, radius, fill, edge)
-        label = font.render(letter, True, text_color)
-        label_rect = label.get_rect(center=center)
-        label_rect.centerx += 1
-        label_rect.centery += 1
-        screen.blit(label, label_rect)
+            label = font.render(letter, True, text_color)
+            label_rect = label.get_rect(center=center)
+            label_rect.centerx += 1
+            label_rect.centery += 1
+            screen.blit(label, label_rect)
         cx -= 40
 
 
@@ -2104,7 +2128,6 @@ def menu_loop(screen, clock, players, player):
         if new_selected != selected:
             selected = new_selected
             first_visible = keep_index_visible(selected, first_visible, len(LESSONS), visible_rows)
-            play_menu_beep()
         suppress_hover_until_redraw = True
 
     # Login achievement check: award (and queue modals for) any achievements the
@@ -2153,6 +2176,7 @@ def menu_loop(screen, clock, players, player):
                         player,
                         mission_engine.player_mission_settings(player),
                         unlocks,
+                        on_button_press=play_button_press,
                     )
                     save_players(players)
                     if result == "quit":
@@ -2165,6 +2189,7 @@ def menu_loop(screen, clock, players, player):
                     navigate(-1)
                 if event.key in (pygame.K_RETURN, pygame.K_SPACE):
                     if selected < unlocked_count:
+                        play_button_press()
                         completed_index = selected
                         lesson_number = LESSONS[completed_index]["number"]
                         was_completed = lesson_number in set(player.get("completed_lessons", []))
@@ -2188,12 +2213,14 @@ def menu_loop(screen, clock, players, player):
                     scrollbar_drag_offset = event.pos[1] - scrollbar_thumb.y
                     continue
                 if achievements_button_rect is not None and achievements_button_rect.collidepoint(event.pos):
+                    play_button_press()
                     result = achievements_modal_loop(screen, clock, player)
                     if result == "quit":
                         return "quit"
                     pygame.event.clear((pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP))
                     continue
                 if upgrades_button_rect is not None and upgrades_button_rect.collidepoint(event.pos):
+                    play_button_press()
                     result = upgrades_modal_loop(screen, clock, players, player)
                     if result == "quit":
                         return "quit"
@@ -2207,6 +2234,7 @@ def menu_loop(screen, clock, players, player):
                     if rect.collidepoint(event.pos):
                         selected = index
                         if index < unlocked_count:
+                            play_button_press()
                             lesson_number = LESSONS[index]["number"]
                             was_completed = lesson_number in set(player.get("completed_lessons", []))
                             result = run_lesson_from_menu(screen, clock, LESSONS[index], player)
@@ -2238,7 +2266,6 @@ def menu_loop(screen, clock, players, player):
                 new_selected = min(len(LESSONS) - 1, first_visible + max(0, visible_rows - 1))
                 if new_selected != selected:
                     selected = new_selected
-                    play_menu_beep()
             elif event.type == pygame.MOUSEMOTION:
                 if suppress_hover_until_redraw:
                     continue
@@ -2246,7 +2273,6 @@ def menu_loop(screen, clock, players, player):
                     if rect.collidepoint(event.pos):
                         if index != selected:
                             selected = index
-                            play_menu_beep()
                         break
             if event.type == pygame.MOUSEWHEEL:
                 step, last_wheel_scroll_time = should_apply_menu_wheel(event, last_wheel_scroll_time)
@@ -2255,7 +2281,6 @@ def menu_loop(screen, clock, players, player):
                     if new_selected != selected:
                         selected = new_selected
                         first_visible = keep_index_visible(selected, first_visible, len(LESSONS), visible_rows)
-                        play_menu_beep()
 
         # Hold Up/Down (or W/S) to keep moving through the mission list (~3x/second).
         held = pygame.key.get_pressed()

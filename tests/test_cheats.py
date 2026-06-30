@@ -95,5 +95,28 @@ class CheatTests(unittest.TestCase):
         self.assertEqual(player["time_stop_charges"], 0)
 
 
+    def test_log_cheat_event_writes_cheats_log(self):
+        import os
+        import tempfile
+
+        import player_storage_sqlite
+
+        with tempfile.TemporaryDirectory() as tmp:
+            saved = {key: os.environ.get(key) for key in ("APPDATA", "XDG_DATA_HOME")}
+            os.environ["APPDATA"] = tmp
+            os.environ["XDG_DATA_HOME"] = tmp
+            try:
+                cheats.log_cheat_event("auto-fire level=3 score=123")
+                log_path = player_storage_sqlite.user_data_dir() / "cheats.log"
+                self.assertTrue(log_path.exists())
+                self.assertIn("auto-fire level=3 score=123", log_path.read_text(encoding="utf-8"))
+            finally:
+                for key, value in saved.items():
+                    if value is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = value
+
+
 if __name__ == "__main__":
     unittest.main()
