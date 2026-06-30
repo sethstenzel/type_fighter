@@ -522,11 +522,32 @@ def enforce_min_window_size(screen):
     return surface
 
 
+_image_cache = {}
+
+
 def load_image(path):
+    # Cache successful loads so each asset is decoded once per session. This both
+    # avoids re-reading large PNGs every mission and, crucially, makes loading
+    # resilient to transient read hiccups (e.g. a momentary file lock from
+    # antivirus/indexing): once an image has loaded it is reused, so a later
+    # hiccup can't silently drop a colored pod/turret variant back to the
+    # default. A failed load is NOT cached, so the next attempt retries.
+    key = str(path)
+    cached = _image_cache.get(key)
+    if cached is not None:
+        return cached
     try:
-        return pygame.image.load(str(path)).convert_alpha()
+        surface = pygame.image.load(key)
     except (OSError, pygame.error):
         return None
+    try:
+        surface = surface.convert_alpha()
+    except pygame.error:
+        # No active display yet: keep the raw surface (it still blits) instead of
+        # discarding a perfectly good image.
+        pass
+    _image_cache[key] = surface
+    return surface
 
 
 def bg_music_path(sfx_dir, lesson_number):
