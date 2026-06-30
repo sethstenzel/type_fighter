@@ -54,6 +54,23 @@ VIAddVersionKey "OriginalFilename" "${RELEASE_NAME}-setup.exe"
 !insertmacro MUI_LANGUAGE "English"
 
 Section "Type Fighter" SecMain
+  ; Refuse to install into an existing, non-empty folder. This guarantees the
+  ; uninstaller's recursive delete can only ever remove files we created, never
+  ; a user's pre-existing data (e.g. if they point InstallDir at Documents).
+  FindFirst $0 $1 "$INSTDIR\*.*"
+  check_dir_entry:
+    StrCmp $1 "" dir_is_empty
+    StrCmp $1 "." dir_next_entry
+    StrCmp $1 ".." dir_next_entry
+    FindClose $0
+    MessageBox MB_OK|MB_ICONSTOP "The selected folder is not empty:$\n$INSTDIR$\n$\nPlease choose a new or empty folder. This protects your files: uninstalling Type Fighter removes everything in its install folder."
+    Abort
+  dir_next_entry:
+    FindNext $0 $1
+    Goto check_dir_entry
+  dir_is_empty:
+  FindClose $0
+
   SetOutPath "$INSTDIR"
   File /r "${SOURCE_DIR}\*.*"
 
@@ -76,6 +93,14 @@ Section "Type Fighter" SecMain
 SectionEnd
 
 Section "Uninstall"
+  ; Only recursively delete the install folder if it actually looks like a
+  ; Type Fighter installation. Prevents wiping an unrelated folder if the
+  ; uninstaller is ever pointed somewhere unexpected.
+  IfFileExists "$INSTDIR\Type Fighter.exe" tf_install_confirmed 0
+    MessageBox MB_OK|MB_ICONEXCLAMATION "This folder does not look like a Type Fighter installation:$\n$INSTDIR$\n$\nAborting to avoid deleting your files."
+    Abort
+  tf_install_confirmed:
+
   Delete "$DESKTOP\Type Fighter.lnk"
   Delete "$SMPROGRAMS\Type Fighter\Type Fighter.lnk"
   Delete "$SMPROGRAMS\Type Fighter\Uninstall Type Fighter.lnk"

@@ -22,7 +22,12 @@ from display_helpers import (
 from lessons.lesson_config import LESSON_PROGRESS
 from lessons.key_render import render_inline_text, render_key_label
 from lessons import mission_engine
-from lessons.mission_engine import create_star_field, draw_star_field, update_star_field
+from lessons.mission_engine import (
+    ONE_SHOT_DRONE_COLOR,
+    create_star_field,
+    draw_star_field,
+    update_star_field,
+)
 import player_limits
 import player_storage_sqlite
 from game_config import (
