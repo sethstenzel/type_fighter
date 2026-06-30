@@ -2845,6 +2845,8 @@ class MissionEngine:
                 "high_score_goal": max(0, self.high_score_goal),
                 "quick_time_goal_ms": max(0, self.quick_defender_goal_ms),
             }
+        if cheats.is_enabled("14"):
+            self._log_auto_fire_run(won)
         return draw_end_screen(
             self.screen,
             self.clock,
@@ -2859,6 +2861,27 @@ class MissionEngine:
             self.inaccurate_keys,
             self.bonus_points,
             self.level_time_ms,
+        )
+
+    def _log_auto_fire_run(self, won):
+        # cheats.log entry written whenever a level is played with the auto-fire
+        # turret cheat on: high score, time, and current spawn speed.
+        multiplier = max(1.0, float(self.mission_settings.get("spawn_rate_multiplier", 1.0)))
+        if cheats.is_enabled("15"):
+            multiplier = max(multiplier, 10.0)
+        cheats.log_cheat_event(
+            "auto-fire level=%d result=%s score=%d high_score_goal=%d time=%s "
+            "time_ms=%d spawn_rate=%.1fx spawn_interval_ms=%d"
+            % (
+                self.lesson_number,
+                "won" if won else "lost",
+                int(max(0, self.score)),
+                int(max(0, self.high_score_goal)),
+                format_mission_time(self.level_time_ms),
+                int(max(0, self.level_time_ms)),
+                multiplier,
+                int(self.current_spawn_interval_ms),
+            )
         )
 
     def _boss_player_target_center(self):

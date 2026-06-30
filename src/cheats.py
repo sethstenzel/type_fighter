@@ -86,6 +86,24 @@ def enabled_cheats():
     return set(_enabled)
 
 
+def log_cheat_event(message):
+    """Append a timestamped line to cheats.log in the user data dir.
+
+    Best-effort: never raises (cheat logging must not interfere with play).
+    """
+    try:
+        import datetime
+
+        from player_storage_sqlite import user_data_dir
+
+        log_path = user_data_dir() / "cheats.log"
+        stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open(log_path, "a", encoding="utf-8") as handle:
+            handle.write(f"{stamp} {message}\n")
+    except Exception:
+        pass
+
+
 def _total_lessons():
     try:
         from lessons.lesson_config import LESSON_PROGRESS
