@@ -87,6 +87,10 @@ DEFENSE_DRONE_SHOT_RADIUS = 4
 DEFENSE_DRONE_COLLISION_RADIUS = 16
 DEFENSE_DRONE_LINE_OF_SIGHT_BLOCK_RADIUS = POD_IMAGE_SIZE // 2
 DEFENSE_DRONE_ACCURACY_GRACE_MS = 3000
+# Defense drones only fire at enemies within this fraction of the smaller screen
+# dimension from the pod, so they wait for drones to approach instead of picking
+# off ones that are still far away / off screen.
+DEFENSE_DRONE_ENGAGE_RANGE_RATIO = 0.5
 
 START_SPAWN_INTERVAL_MS = 6000
 MIN_SPAWN_INTERVAL_MS = 2000
@@ -3386,10 +3390,13 @@ class MissionEngine:
         return closest.distance_to(self.player_center) > DEFENSE_DRONE_LINE_OF_SIGHT_BLOCK_RADIUS
 
     def _defense_drone_target(self, defense_pos):
+        width, height = self.screen.get_size()
+        engage_radius = min(width, height) * DEFENSE_DRONE_ENGAGE_RANGE_RATIO
         candidates = [
             drone
             for drone in self.drones
-            if self._defense_drone_has_line_of_sight(defense_pos, drone.pos)
+            if drone.pos.distance_to(self.player_center) <= engage_radius
+            and self._defense_drone_has_line_of_sight(defense_pos, drone.pos)
             and defense_drone_remaining_shot_capacity(drone) > 0
         ]
         return random.choice(candidates) if candidates else None
