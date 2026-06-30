@@ -96,7 +96,9 @@ def log_cheat_event(message):
 
         from player_storage_sqlite import user_data_dir
 
-        log_path = user_data_dir() / "cheats.log"
+        data_dir = user_data_dir()
+        data_dir.mkdir(parents=True, exist_ok=True)
+        log_path = data_dir / "cheats.log"
         stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         with open(log_path, "a", encoding="utf-8") as handle:
             handle.write(f"{stamp} {message}\n")
