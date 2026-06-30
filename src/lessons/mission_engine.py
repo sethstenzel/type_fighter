@@ -1780,7 +1780,6 @@ def draw_end_screen(
     inaccurate_keys,
     bonus_points=0,
     level_time_ms=0,
-    high_score_goal_value=0,
 ):
     title_font = pygame.font.SysFont("arial", 56, bold=True)
     body_font = pygame.font.SysFont("arial", 24)
@@ -1789,11 +1788,12 @@ def draw_end_screen(
     destroyed_count = int(min(destroyed, drone_target))
     accuracy_inputs = accurate_inputs + inaccurate_inputs
     accuracy_percent = 100 if accuracy_inputs == 0 else round(accurate_inputs * 100 / accuracy_inputs)
-    high_score_reached = won and score >= high_score_goal_value
+    # `score` is the grand total (base + bonus). Show its components plus the total.
+    base_points = max(0, score - bonus_points)
     rows = [
-        ("Points", str(score)),
+        ("Points", str(base_points)),
         ("Bonus points", str(bonus_points)),
-        ("High score goal", f"{high_score_goal_value} {'(reached!)' if high_score_reached else ''}".strip()),
+        ("Total level score", str(score)),
         ("Time", format_mission_time(level_time_ms)),
         ("Hits taken", str(hits_taken)),
         ("Drones destroyed", f"{destroyed_count}/{drone_target}"),
@@ -2623,7 +2623,6 @@ class MissionEngine:
             self.inaccurate_keys,
             self.bonus_points,
             self.level_time_ms,
-            self.high_score_goal,
         )
 
     def _boss_player_target_center(self):
