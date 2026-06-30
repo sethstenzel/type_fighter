@@ -90,7 +90,7 @@ DEFENSE_DRONE_ACCURACY_GRACE_MS = 3000
 # Defense drones only fire at enemies within this fraction of the smaller screen
 # dimension from the pod, so they wait for drones to approach instead of picking
 # off ones that are still far away / off screen.
-DEFENSE_DRONE_ENGAGE_RANGE_RATIO = 0.5
+DEFENSE_DRONE_ENGAGE_RANGE_RATIO = 0.9
 
 START_SPAWN_INTERVAL_MS = 6000
 MIN_SPAWN_INTERVAL_MS = 2000
