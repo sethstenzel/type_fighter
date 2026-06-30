@@ -38,6 +38,7 @@ from game_config import (
     load_game_data_db,
     save_game_data_db,
 )
+import cheats
 import user_settings
 from player_model import (
     DEFAULT_POD,
@@ -2318,6 +2319,14 @@ def main():
     load_game_data_db(GAME_DATA_DB_PATH)
     apply_game_settings()
     setup_logging(logging_enabled())
+    if cheats.wants_listing(sys.argv):
+        for cheat_id, description in sorted(cheats.AVAILABLE_CHEATS.items()):
+            logger.info("cheat {}: {}", cheat_id, description)
+    enabled_cheats, unknown_cheats = cheats.enable_from_argv(sys.argv)
+    if enabled_cheats:
+        logger.warning("CHEATS ENABLED: {}", ", ".join(sorted(enabled_cheats)))
+    if unknown_cheats:
+        logger.warning("Unknown cheats ignored: {}", ", ".join(unknown_cheats))
     set_windows_app_id()
     pygame.init()
     try:
@@ -2337,6 +2346,8 @@ def main():
             if selection == "quit":
                 break
             players, player = selection
+            cheats.apply_player_cheats(player)
+            save_players(players)
             result = menu_loop(screen, clock, players, player)
             if result == "quit":
                 break

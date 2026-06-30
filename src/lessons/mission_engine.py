@@ -5,6 +5,7 @@ import random
 from pathlib import Path
 
 import pygame
+import cheats
 import user_settings
 
 from lessons.audio import (
@@ -2315,6 +2316,10 @@ class MissionEngine:
         self.mission_settings = player_mission_settings(player)
         self.raw_mega_shot_available = player_mega_shot_available(player, self.lesson_number)
         self.raw_shields_available = player_shield_available(player, self.lesson_number)
+        if cheats.is_enabled("4"):
+            self.raw_mega_shot_available = True
+        if cheats.is_enabled("5"):
+            self.raw_shields_available = True
         self.player_mega_shot_available = False
         self.player_advanced_mega_shot_available = player_advanced_mega_shot_available(player, self.lesson_number)
         self.player_shields_available = False
@@ -2414,9 +2419,13 @@ class MissionEngine:
         )
         self.quick_defender_goal_ms = quick_defender_goal_ms(self.lesson_number)
         self.player_time_stop_available = player_time_stop_available(player, self.lesson_number)
+        if cheats.is_enabled("6"):
+            self.player_time_stop_available = True
         self.time_stop_power_up_enabled = time_stop_power_up_enabled(self.lesson_number)
         self.time_stop_max_charges = TIME_STOP_MAX_CHARGES
         self.time_stop_charges = self._player_int("time_stop_charges", 0, 0, self.time_stop_max_charges)
+        if cheats.is_enabled("6"):
+            self.time_stop_charges = min(self.time_stop_max_charges, cheats.CHEAT_TIME_STOP_CHARGES)
         self.time_stop = None
         self.current_time_scale = 1.0
         self._ring_radius = 0.0
@@ -2428,6 +2437,8 @@ class MissionEngine:
             STARTING_LIVES,
             self._player_int("lives", STARTING_LIVES, 1, player_limits.MAX_PLAYER_LIVES),
         )
+        if cheats.is_enabled("1"):
+            self.lives = min(player_limits.MAX_PLAYER_LIVES, cheats.CHEAT_LIVES)
         self.shield_charges = self._player_int("shield_charges", 0, 0, self.max_shield_charges)
         if self.player_shields_available and self.max_shield_charges > 0 and self.shield_charges <= 0:
             self.shield_charges = 1
@@ -2939,6 +2950,13 @@ class MissionEngine:
                     if self.mega_charge_blocks < MEGA_CHARGE_MAX_BLOCKS
                     else 0
                 )
+        # Cheats: keep charges topped up so they never effectively drain.
+        if cheats.is_enabled("4"):
+            self.mega_charge_blocks = MEGA_CHARGE_MAX_BLOCKS
+        if cheats.is_enabled("5") and self.player_shields_available:
+            self.shield_charges = min(self.max_shield_charges, cheats.CHEAT_SHIELD_CHARGES)
+        if cheats.is_enabled("6"):
+            self.time_stop_charges = min(self.time_stop_max_charges, cheats.CHEAT_TIME_STOP_CHARGES)
         return dt, now
 
     def _start_final_boss_encounter(self, now):
@@ -3267,9 +3285,14 @@ class MissionEngine:
                 self.drones.remove(drone)
                 explode(self.particles, drone.pos, 12)
                 play_sound(self.explosion_sound)
+                if cheats.is_enabled("3"):
+                    # Hit is fully ignored: not counted, no shield used, no life lost.
+                    continue
                 self.hits_taken += 1
                 if self._absorb_player_hit_with_shield(now):
                     continue
+                if cheats.is_enabled("2"):
+                    continue  # invincible: hit counted but no life lost
                 self.lives -= 1
                 self._save_player_resources()
                 if self.lives <= 0:
