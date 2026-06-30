@@ -250,6 +250,57 @@ class MissionMechanicsTests(unittest.TestCase):
         self.assertEqual(me.format_level_timer(999990), "T: 999.99")
         self.assertEqual(me.format_level_timer(5_000_000), "T: 999.99")
 
+    # --- Issue #19: Time Stop ---
+    def test_time_stop_availability(self):
+        self.assertTrue(me.player_time_stop_available({"completed_lessons": []}, 27))
+        self.assertTrue(me.player_time_stop_available({"completed_lessons": [26]}, 5))
+        self.assertFalse(me.player_time_stop_available({"completed_lessons": [25]}, 5))
+
+    def test_time_stop_power_up_enabled(self):
+        self.assertFalse(me.time_stop_power_up_enabled(26))
+        self.assertTrue(me.time_stop_power_up_enabled(27))
+
+    def test_time_stop_ring_sweep_and_freeze(self):
+        # 5s total: expand 1s, hold 3s, contract 1s; full stop (scale 0) inside.
+        ring = me.TimeStopRing(5000, 1000, 1000, 0.0, (0, 0), 100)
+        self.assertEqual(ring.radius(), 0)
+        self.assertEqual(ring.object_time_scale(50), 1.0)  # nothing frozen yet
+        ring.update(500)  # mid-expand -> radius 50
+        self.assertAlmostEqual(ring.radius(), 50)
+        self.assertEqual(ring.object_time_scale(40), 0.0)  # inside -> frozen
+        self.assertEqual(ring.object_time_scale(60), 1.0)  # outside -> normal
+        ring.update(2500)  # hold -> full radius, everything on-screen frozen
+        self.assertEqual(ring.radius(), 100)
+        self.assertEqual(ring.object_time_scale(99), 0.0)
+        ring.update(2000)  # finished -> ring gone, all un-frozen
+        self.assertFalse(ring.active)
+        self.assertEqual(ring.radius(), 0)
+        self.assertEqual(ring.object_time_scale(10), 1.0)
+
+    def test_time_stop_ring_keeps_a_hold_phase(self):
+        # expand + contract longer than duration are scaled to leave a hold.
+        ring = me.TimeStopRing(1000, 5000, 5000, 0.0, (0, 0), 100)
+        self.assertLess(ring.expand_ms + ring.contract_ms, ring.duration_ms + 1)
+
+    def test_spawn_power_up_time_stop_kind(self):
+        screen = pygame.Surface((640, 480))
+        kinds = set()
+        for _ in range(60):
+            p = me.spawn_power_up(
+                screen, ("a", "b"), 0, shield_enabled=False, life_enabled=False,
+                time_stop_enabled=True, time_stop_charges=0,
+            )
+            if p:
+                kinds.add(p.kind)
+        self.assertEqual(kinds, {"time_stop"})
+        # no time-stop power-up once charges are maxed
+        self.assertIsNone(
+            me.spawn_power_up(
+                screen, ("a",), 0, shield_enabled=False, life_enabled=False,
+                time_stop_enabled=True, time_stop_charges=3,
+            )
+        )
+
     def test_calculate_credits_earned_bonuses(self):
         engine = me.MissionEngine.__new__(me.MissionEngine)
         engine.destroyed = 50

@@ -35,6 +35,15 @@ DEFAULT_GAME_SETTINGS = {
         {"start": 20, "end": 29, "warning_threshold": 75, "limited_threshold": 65},
         {"start": 30, "end": None, "warning_threshold": 80, "limited_threshold": 70},
     ],
+    "time_stop_duration_ms": 10000,
+    "time_stop_expand_ms": 450,
+    "time_stop_contract_ms": 1500,
+    "time_stop_min_speed_scale": 0.0,
+    "time_stop_max_charges": 3,
+    "time_stop_start_lesson": 27,
+    "time_stop_unlock_lesson": 26,
+    "time_stop_double_tap_ms": 600,
+    "time_ring_alpha": 90,
 }
 
 

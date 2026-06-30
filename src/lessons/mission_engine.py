@@ -5,6 +5,7 @@ import random
 from pathlib import Path
 
 import pygame
+import cheats
 import user_settings
 
 from lessons.audio import (
@@ -146,6 +147,21 @@ MEGA_SHIELD_MIN_LEVEL = 3
 MEGA_FINAL_KILL_LEVEL = 5
 MEGA_MINI_BOSS_KILL_LEVEL = 4
 ACCURACY_SYSTEM_START_LESSON = 1
+# --- Time Stop (see issue #19) ------------------------------------------
+TIME_STOP_UNLOCK_LESSON = 26      # completing this lesson unlocks the ability
+TIME_STOP_START_LESSON = 27       # power-ups only spawn from this lesson on
+TIME_STOP_MAX_CHARGES = 3
+TIME_STOP_DURATION_MS = 10000     # total time-stop duration
+TIME_STOP_EXPAND_MS = 450         # ring sweep-out (freezes nearest objects first)
+TIME_STOP_CONTRACT_MS = 1500      # slow recede at the end (un-freezes farthest first)
+TIME_STOP_MIN_SPEED_SCALE = 0.0   # frozen objects' speed while inside the ring (0 = full stop)
+TIME_STOP_POD_ROTATION_SCALE = 1.0 / 10.0  # pod + defense drones keep rotating at this fraction during a time stop
+TIME_STOP_DOUBLE_TAP_MS = 600     # window for the 3 rapid spacebar taps
+TIME_RING_COLOR = (170, 174, 184)     # grey ring
+TIME_RING_INNER_COLOR = (210, 214, 222)
+TIME_RING_ALPHA = 90                  # ring transparency (0-255)
+TIME_STOP_POWER_UP_COLOR = (10, 10, 14)    # black hexagon
+TIME_STOP_POWER_UP_EDGE = (236, 240, 255)  # white border
 ACCURACY_MAX_CHARGES = 5
 ACCURACY_RECHARGE_INTERVAL_MS = 3000
 ACCURACY_THRESHOLD_BANDS = (
@@ -198,6 +214,13 @@ def _safe_int(value, default):
         return default
 
 
+def _safe_float(value, default):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _normalize_boss_counts(counts):
     if not isinstance(counts, dict):
         return {}
@@ -215,6 +238,9 @@ def apply_game_settings(settings):
     global FINAL_BOSS_ATTACK_INTERVAL_MS, FINAL_BOSS_SEMI_BOSS_FIRST_SPAWN_MS, FINAL_BOSS_SEMI_BOSS_SPAWN_INTERVAL_MS
     global FINAL_BOSS_COUNT_BY_LESSON
     global ACCURACY_THRESHOLD_BANDS
+    global TIME_STOP_DURATION_MS, TIME_STOP_EXPAND_MS, TIME_STOP_CONTRACT_MS
+    global TIME_STOP_MIN_SPEED_SCALE, TIME_STOP_MAX_CHARGES, TIME_STOP_START_LESSON
+    global TIME_STOP_UNLOCK_LESSON, TIME_STOP_DOUBLE_TAP_MS, TIME_RING_ALPHA
     if not isinstance(settings, dict):
         return
     STARTING_LIVES = _safe_int(settings.get("starting_lives", STARTING_LIVES), STARTING_LIVES)
@@ -253,6 +279,15 @@ def apply_game_settings(settings):
     ACCURACY_THRESHOLD_BANDS = normalize_accuracy_threshold_bands(
         settings.get("accuracy_threshold_bands", ACCURACY_THRESHOLD_BANDS)
     )
+    TIME_STOP_DURATION_MS = _safe_int(settings.get("time_stop_duration_ms", TIME_STOP_DURATION_MS), TIME_STOP_DURATION_MS)
+    TIME_STOP_EXPAND_MS = _safe_int(settings.get("time_stop_expand_ms", TIME_STOP_EXPAND_MS), TIME_STOP_EXPAND_MS)
+    TIME_STOP_CONTRACT_MS = _safe_int(settings.get("time_stop_contract_ms", TIME_STOP_CONTRACT_MS), TIME_STOP_CONTRACT_MS)
+    TIME_STOP_MIN_SPEED_SCALE = _safe_float(settings.get("time_stop_min_speed_scale", TIME_STOP_MIN_SPEED_SCALE), TIME_STOP_MIN_SPEED_SCALE)
+    TIME_STOP_MAX_CHARGES = _safe_int(settings.get("time_stop_max_charges", TIME_STOP_MAX_CHARGES), TIME_STOP_MAX_CHARGES)
+    TIME_STOP_START_LESSON = _safe_int(settings.get("time_stop_start_lesson", TIME_STOP_START_LESSON), TIME_STOP_START_LESSON)
+    TIME_STOP_UNLOCK_LESSON = _safe_int(settings.get("time_stop_unlock_lesson", TIME_STOP_UNLOCK_LESSON), TIME_STOP_UNLOCK_LESSON)
+    TIME_STOP_DOUBLE_TAP_MS = _safe_int(settings.get("time_stop_double_tap_ms", TIME_STOP_DOUBLE_TAP_MS), TIME_STOP_DOUBLE_TAP_MS)
+    TIME_RING_ALPHA = _safe_int(settings.get("time_ring_alpha", TIME_RING_ALPHA), TIME_RING_ALPHA)
 
 
 def normalize_accuracy_threshold_bands(value):
@@ -410,6 +445,54 @@ class Star:
     radius: int
     alpha: int
     speed_scale: float
+
+
+class TimeStopRing:
+    """Expanding/contracting time-stop ring emanating from the ship.
+
+    Objects within the ring's current radius are frozen. The ring expands
+    outward (freezing the nearest first), holds, then contracts (un-freezing
+    the farthest first), so freeze and release sweep through the field.
+    """
+
+    def __init__(self, duration_ms, expand_ms, contract_ms, min_speed_scale, center, max_radius):
+        self.duration_ms = max(1, int(duration_ms))
+        self.expand_ms = max(1, int(expand_ms))
+        self.contract_ms = max(1, int(contract_ms))
+        # Always keep a hold phase, even if expand+contract were set too long.
+        if self.expand_ms + self.contract_ms > self.duration_ms:
+            total = self.expand_ms + self.contract_ms
+            self.expand_ms = max(1, int(self.duration_ms * self.expand_ms / total))
+            self.contract_ms = max(1, self.duration_ms - self.expand_ms)
+        self.min_speed_scale = max(0.0, min(1.0, float(min_speed_scale)))
+        self.center = pygame.Vector2(center)
+        self.max_radius = max(1.0, float(max_radius))
+        self.elapsed_ms = 0.0
+        self.active = True
+
+    def update(self, dt_ms):
+        if not self.active:
+            return
+        self.elapsed_ms += dt_ms
+        if self.elapsed_ms >= self.duration_ms:
+            self.elapsed_ms = self.duration_ms
+            self.active = False
+
+    def radius(self):
+        contract_start = self.duration_ms - self.contract_ms
+        if self.elapsed_ms <= self.expand_ms:
+            return self.max_radius * (self.elapsed_ms / self.expand_ms)
+        if self.elapsed_ms < contract_start:
+            return self.max_radius
+        remaining = max(0.0, self.duration_ms - self.elapsed_ms)
+        return self.max_radius * (remaining / self.contract_ms)
+
+    def object_time_scale(self, distance, ring_radius=None):
+        radius = self.radius() if ring_radius is None else ring_radius
+        return self.min_speed_scale if distance <= radius else 1.0
+
+    def is_contracting(self):
+        return self.elapsed_ms >= (self.duration_ms - self.contract_ms)
 
 
 def toggle_fullscreen():
@@ -638,6 +721,19 @@ def player_shield_available(player, lesson_number):
         return False
     completed = set(player.get("completed_lessons", []))
     return all(number in completed for number in range(1, PLAYER_SHIELD_START_LESSON))
+
+
+def time_stop_power_up_enabled(lesson_number):
+    return lesson_number >= TIME_STOP_START_LESSON
+
+
+def player_time_stop_available(player, lesson_number):
+    # Unlocked once level 26 is completed; usable in any level afterward.
+    if lesson_number > TIME_STOP_UNLOCK_LESSON:
+        return True
+    if not isinstance(player, dict):
+        return False
+    return TIME_STOP_UNLOCK_LESSON in set(player.get("completed_lessons", []))
 
 
 # DEFAULT_MISSION_SETTINGS, the spawn-rate bounds, and normalize_mission_settings
@@ -913,6 +1009,9 @@ def spawn_power_up(
     blocked_center=None,
     blocked_radius=POWER_UP_POD_EXCLUSION_RADIUS,
     blocked_rects=(),
+    time_stop_enabled=False,
+    time_stop_charges=0,
+    max_time_stop_charges=TIME_STOP_MAX_CHARGES,
 ):
     width, height = screen.get_size()
     margin = 90
@@ -920,13 +1019,16 @@ def spawn_power_up(
     if not power_up_keys:
         return None
     keys = random.choices(power_up_keys, k=2)
-    can_spawn_shield = shield_enabled and shield_charges < max_shield_charges
-    if can_spawn_shield and (not life_enabled or random.random() < 0.5):
-        kind = "shield"
-    elif life_enabled:
-        kind = "life"
-    else:
+    kinds = []
+    if shield_enabled and shield_charges < max_shield_charges:
+        kinds.append("shield")
+    if life_enabled:
+        kinds.append("life")
+    if time_stop_enabled and time_stop_charges < max_time_stop_charges:
+        kinds.append("time_stop")
+    if not kinds:
         return None
+    kind = random.choice(kinds)
     pos = pygame.Vector2(
         random.randint(margin, max(margin, width - margin)),
         random.randint(margin, max(margin, height - margin)),
@@ -1572,14 +1674,25 @@ def draw_power_up(screen, power_up, now):
     size = 74
     surface = pygame.Surface((size, size), pygame.SRCALPHA)
     alpha = power_up_alpha(power_up, now)
-    color = SHIELD_POWER_UP_COLOR if power_up.kind == "shield" else POWER_UP_COLOR
-    edge_color = (226, 255, 235) if power_up.kind == "life" else (225, 246, 255)
     center = pygame.Vector2(size / 2, size / 2)
+    label_color = (5, 24, 12)
     if power_up.kind == "shield":
         shape_rect = pygame.Rect(0, 0, 56, 56)
         shape_rect.center = center
-        pygame.draw.rect(surface, color, shape_rect, border_radius=4)
-        pygame.draw.rect(surface, edge_color, shape_rect, 3, border_radius=4)
+        pygame.draw.rect(surface, SHIELD_POWER_UP_COLOR, shape_rect, border_radius=4)
+        pygame.draw.rect(surface, (225, 246, 255), shape_rect, 3, border_radius=4)
+    elif power_up.kind == "time_stop":
+        radius = 30
+        points = [
+            (
+                center.x + radius * math.cos(math.pi / 6 + index * math.pi / 3),
+                center.y + radius * math.sin(math.pi / 6 + index * math.pi / 3),
+            )
+            for index in range(6)
+        ]
+        pygame.draw.polygon(surface, TIME_STOP_POWER_UP_COLOR, points)
+        pygame.draw.polygon(surface, TIME_STOP_POWER_UP_EDGE, points, 3)
+        label_color = (236, 240, 255)
     else:
         points = (
             (center.x, 7),
@@ -1587,16 +1700,16 @@ def draw_power_up(screen, power_up, now):
             (center.x, size - 7),
             (7, center.y),
         )
-        pygame.draw.polygon(surface, color, points)
-        pygame.draw.polygon(surface, edge_color, points, 3)
+        pygame.draw.polygon(surface, POWER_UP_COLOR, points)
+        pygame.draw.polygon(surface, (226, 255, 235), points, 3)
 
     label_text = " ".join(display_key(key) for key in power_up.letters)
     label_font = pygame.font.SysFont("arial", 24, bold=True)
-    render_inline_center(surface, label_text, label_font, (5, 24, 12), center)
+    render_inline_center(surface, label_text, label_font, label_color, center)
 
     if power_up.progress:
         pip_rect = pygame.Rect(12, size - 14, 24, 4)
-        pygame.draw.rect(surface, (5, 24, 12), pip_rect)
+        pygame.draw.rect(surface, label_color, pip_rect)
     surface.set_alpha(alpha)
     screen.blit(surface, surface.get_rect(center=power_up.pos))
 
@@ -1699,6 +1812,40 @@ def draw_player_shield_bar(screen, font, charges, enabled, y_offset=0, max_charg
             screen.blit(shield_surface, block_rect)
 
     text_surface = font.render("Shield", True, FINAL_BOSS_SHIELD_COLOR if charges else (80, 95, 110))
+    if not charges:
+        text_surface.set_alpha(155)
+    screen.blit(text_surface, text_surface.get_rect(center=(center_x, 28 + y_offset)))
+
+
+def draw_time_stop_bar(screen, font, charges, enabled, y_offset=0, max_charges=TIME_STOP_MAX_CHARGES, center_x=None):
+    if not enabled:
+        return
+    width, _ = screen.get_size()
+    if center_x is None:
+        center_x = width / 2
+    block_size = 22
+    gap = 5
+    max_charges = max(1, max_charges)
+    bar_width = max_charges * block_size + (max_charges - 1) * gap
+    bar_rect = pygame.Rect(0, 0, bar_width, block_size)
+    bar_rect.center = (center_x, 51 + y_offset)
+
+    frame_color = (150, 130, 210)
+    empty_color = (24, 22, 40)
+    ring_color = (200, 180, 255)
+    for index in range(max_charges):
+        block_rect = pygame.Rect(bar_rect.x + index * (block_size + gap), bar_rect.y, block_size, block_size)
+        pygame.draw.rect(screen, empty_color, block_rect, border_radius=4)
+        pygame.draw.rect(screen, frame_color, block_rect, 2, border_radius=4)
+        if index < charges:
+            icon = pygame.Surface((block_size, block_size), pygame.SRCALPHA)
+            middle = block_size // 2
+            for radius in (block_size // 2 - 3, block_size // 2 - 7):
+                if radius > 0:
+                    pygame.draw.circle(icon, (*ring_color, 210), (middle, middle), radius, 2)
+            screen.blit(icon, block_rect)
+
+    text_surface = font.render("Time Stop", True, ring_color if charges else (80, 78, 100))
     if not charges:
         text_surface.set_alpha(155)
     screen.blit(text_surface, text_surface.get_rect(center=(center_x, 28 + y_offset)))
@@ -2106,11 +2253,6 @@ def pause_menu(screen, clock):
             rect.center = (width / 2, start_y + index * (button_height + button_gap))
             buttons.append(rect)
 
-        mouse_pos = pygame.mouse.get_pos()
-        for index, rect in enumerate(buttons):
-            if rect.collidepoint(mouse_pos):
-                selected = index
-
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return "quit"
@@ -2132,6 +2274,13 @@ def pause_menu(screen, clock):
                     return "restart"
                 if event.key == pygame.K_x:
                     return "menu"
+            if event.type == pygame.MOUSEMOTION:
+                # Only the cursor *moving* changes the selection; a stationary
+                # cursor must not override keyboard navigation each frame.
+                for index, rect in enumerate(buttons):
+                    if rect.collidepoint(event.pos):
+                        selected = index
+                        break
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 for index, rect in enumerate(buttons):
                     if rect.collidepoint(event.pos):
@@ -2170,6 +2319,10 @@ class MissionEngine:
         self.mission_settings = player_mission_settings(player)
         self.raw_mega_shot_available = player_mega_shot_available(player, self.lesson_number)
         self.raw_shields_available = player_shield_available(player, self.lesson_number)
+        if cheats.is_enabled("4"):
+            self.raw_mega_shot_available = True
+        if cheats.is_enabled("5"):
+            self.raw_shields_available = True
         self.player_mega_shot_available = False
         self.player_advanced_mega_shot_available = player_advanced_mega_shot_available(player, self.lesson_number)
         self.player_shields_available = False
@@ -2189,6 +2342,8 @@ class MissionEngine:
         self.explosion_sound = load_sound(self.sfx_dir / "explosion.ogg", 0.75)
         self.health_sound = load_sound(self.sfx_dir / "health.ogg", 0.85)
         self.shield_up_sound = load_sound(self.sfx_dir / "shield_up.wav", 0.85)
+        self.time_stop_sound = load_sound(self.sfx_dir / "time_stop.wav", 0.85)
+        self.time_stop_ending_sound = load_sound(self.sfx_dir / "time_stop_ending.wav", 0.85)
         self.split_sound = load_sound(self.sfx_dir / "split.ogg", 0.75)
         self.boss_sound = load_sound(self.sfx_dir / "boss.ogg", 0.85)
         self.victory_sound = load_sound(self.sfx_dir / "victory.wav", 0.9)
@@ -2266,11 +2421,27 @@ class MissionEngine:
             len(self.mini_boss_numbers),
         )
         self.quick_defender_goal_ms = quick_defender_goal_ms(self.lesson_number)
+        self.player_time_stop_available = player_time_stop_available(player, self.lesson_number)
+        if cheats.is_enabled("6"):
+            self.player_time_stop_available = True
+        self.time_stop_power_up_enabled = time_stop_power_up_enabled(self.lesson_number)
+        self.time_stop_max_charges = TIME_STOP_MAX_CHARGES
+        self.time_stop_charges = self._player_int("time_stop_charges", 0, 0, self.time_stop_max_charges)
+        if cheats.is_enabled("6"):
+            self.time_stop_charges = min(self.time_stop_max_charges, cheats.CHEAT_TIME_STOP_CHARGES)
+        self.time_stop = None
+        self.current_time_scale = 1.0
+        self._ring_radius = 0.0
+        self._ring_overlay = None
+        self._time_stop_ending_played = False
+        self.space_tap_times = []
         self.credits_awarded = False
         self.lives = max(
             STARTING_LIVES,
             self._player_int("lives", STARTING_LIVES, 1, player_limits.MAX_PLAYER_LIVES),
         )
+        if cheats.is_enabled("1"):
+            self.lives = min(player_limits.MAX_PLAYER_LIVES, cheats.CHEAT_LIVES)
         self.shield_charges = self._player_int("shield_charges", 0, 0, self.max_shield_charges)
         if self.player_shields_available and self.max_shield_charges > 0 and self.shield_charges <= 0:
             self.shield_charges = 1
@@ -2479,6 +2650,7 @@ class MissionEngine:
         self.player["lives"] = max(1, min(player_limits.MAX_PLAYER_LIVES, self.lives))
         if self.player_shields_available:
             self.player["shield_charges"] = max(0, min(self.max_shield_charges, self.shield_charges))
+        self.player["time_stop_charges"] = max(0, min(self.time_stop_max_charges, self.time_stop_charges))
 
     def _add_lifetime_score(self):
         if self.player is None:
@@ -2660,6 +2832,11 @@ class MissionEngine:
             return False
         return self.player_center.distance_to(self._boss_player_target_center()) <= 2
 
+    def _firing_locked_for_boss_intro(self):
+        # While final bosses are still approaching/repositioning the player cannot
+        # engage them yet, so key presses must not be counted as inaccurate.
+        return bool(self.final_bosses) and not self._boss_perspective_ready()
+
     def _shift_gameplay_timers(self, elapsed_ms):
         if elapsed_ms <= 0:
             return
@@ -2696,17 +2873,89 @@ class MissionEngine:
     def _shift_timer(value, elapsed_ms):
         return value + elapsed_ms if value else value
 
+    def _ring_max_radius(self, center):
+        # Distance from the ring center to the farthest screen corner (+margin),
+        # so the ring fully clears the screen at peak.
+        width, height = self.screen.get_size()
+        corners = ((0, 0), (width, 0), (0, height), (width, height))
+        farthest = max(math.hypot(center.x - cx, center.y - cy) for cx, cy in corners)
+        return farthest + 40
+
+    def _update_time_stop(self, dt):
+        if self.time_stop is not None:
+            self.time_stop.update(dt * 1000)
+            if self.time_stop.is_contracting() and not self._time_stop_ending_played:
+                play_sound(self.time_stop_ending_sound)
+                self._time_stop_ending_played = True
+            if not self.time_stop.active:
+                self.time_stop = None
+        # Cache the ring radius once per frame; while active, the ship/pod and the
+        # level timer (both at/near the center) are frozen the whole time.
+        if self.time_stop is not None:
+            self._ring_radius = self.time_stop.radius()
+            self.current_time_scale = self.time_stop.min_speed_scale
+        else:
+            self._ring_radius = 0.0
+            self.current_time_scale = 1.0
+
+    def _object_time_scale(self, pos):
+        ring = self.time_stop
+        if ring is None:
+            return 1.0
+        distance = math.hypot(pos.x - ring.center.x, pos.y - ring.center.y)
+        return ring.object_time_scale(distance, self._ring_radius)
+
+    def _activate_time_stop(self, now):
+        if not self.player_time_stop_available or self.time_stop is not None:
+            return False
+        if self.time_stop_charges <= 0:
+            return False
+        if self._firing_locked_for_boss_intro():
+            return False  # can't activate during the final boss pan/approach
+        self.time_stop_charges -= 1
+        self._save_player_resources()
+        center = pygame.Vector2(self.player_center)
+        self.time_stop = TimeStopRing(
+            TIME_STOP_DURATION_MS,
+            TIME_STOP_EXPAND_MS,
+            TIME_STOP_CONTRACT_MS,
+            TIME_STOP_MIN_SPEED_SCALE,
+            center,
+            self._ring_max_radius(center),
+        )
+        self._ring_radius = 0.0
+        self._time_stop_ending_played = False
+        self.space_tap_times = []
+        play_sound(self.time_stop_sound)
+        return True
+
+    def _register_space_tap(self, now):
+        self.space_tap_times = [t for t in self.space_tap_times if now - t <= TIME_STOP_DOUBLE_TAP_MS]
+        self.space_tap_times.append(now)
+        if len(self.space_tap_times) >= 2:
+            return self._activate_time_stop(now)
+        return False
+
     def _begin_frame(self):
         dt = self.clock.tick(60) / 1000
         now = pygame.time.get_ticks()
+        self._update_time_stop(dt)
         self._update_player_center(dt)
-        self.pod_rotation = (self.pod_rotation + math.tau * dt / POD_ROTATION_SECONDS) % math.tau
+        # During a time stop the pod keeps rotating, but at 1/3 speed.
+        pod_scale = TIME_STOP_POD_ROTATION_SCALE if self.time_stop is not None else 1.0
+        self.pod_rotation = (
+            self.pod_rotation + math.tau * dt * pod_scale / POD_ROTATION_SECONDS
+        ) % math.tau
         if now >= self.next_spawn_rate_change_time:
             self.current_spawn_interval_ms = self._spawn_interval()
             self.next_spawn_rate_change_time = now + SPAWN_RATE_CHANGE_MS
-        update_star_field(self.stars, dt)
+        # The background star field stops drifting during a time stop.
+        if self.time_stop is None:
+            update_star_field(self.stars, dt)
         if self.mission_start_ticks is not None:
-            self.level_time_ms = min(MAX_LEVEL_TIME_MS, max(0, now - self.mission_start_ticks))
+            self.level_time_ms = min(
+                MAX_LEVEL_TIME_MS, self.level_time_ms + dt * 1000 * self.current_time_scale
+            )
         if self.player_mega_shot_available and self.mega_charge_blocks < MEGA_CHARGE_MAX_BLOCKS:
             if self.next_mega_recharge_time and now >= self.next_mega_recharge_time:
                 self.mega_charge_blocks += 1
@@ -2715,6 +2964,13 @@ class MissionEngine:
                     if self.mega_charge_blocks < MEGA_CHARGE_MAX_BLOCKS
                     else 0
                 )
+        # Cheats: keep charges topped up so they never effectively drain.
+        if cheats.is_enabled("4"):
+            self.mega_charge_blocks = MEGA_CHARGE_MAX_BLOCKS
+        if cheats.is_enabled("5") and self.player_shields_available:
+            self.shield_charges = min(self.max_shield_charges, cheats.CHEAT_SHIELD_CHARGES)
+        if cheats.is_enabled("6"):
+            self.time_stop_charges = min(self.time_stop_max_charges, cheats.CHEAT_TIME_STOP_CHARGES)
         return dt, now
 
     def _start_final_boss_encounter(self, now):
@@ -2796,6 +3052,11 @@ class MissionEngine:
             )
             if drone.is_mega:
                 play_sound(self.boss_sound)
+                # A purple drone that spawns during a time stop must not spawn
+                # more drones until the stop has ended.
+                if self.time_stop is not None:
+                    remaining = max(0, self.time_stop.duration_ms - self.time_stop.elapsed_ms)
+                    drone.next_shot_time = now + int(remaining) + MEGA_ATTACK_INTERVAL_MS
             self.next_spawn_time = now + self.current_spawn_interval_ms
 
         if self.power_up is not None and now >= self.power_up.expires_at:
@@ -2812,6 +3073,9 @@ class MissionEngine:
                 self.life_power_ups_spawned < MAX_LIFE_POWER_UPS_PER_MISSION,
                 self.player_center,
                 blocked_rects=self._power_up_blocked_rects(),
+                time_stop_enabled=self.time_stop_power_up_enabled and self.player_time_stop_available,
+                time_stop_charges=self.time_stop_charges,
+                max_time_stop_charges=self.time_stop_max_charges,
             )
             if self.power_up is None:
                 self.next_power_up_spawn_time = next_power_up_time(now)
@@ -2824,6 +3088,7 @@ class MissionEngine:
             and self.final_bosses_defeated == 0
             and self.destroyed >= self.drone_target
             and active_mini_boss_count(self.drones) == 0
+            and self.time_stop is None  # wait for an active time stop to finish first
         ):
             self._start_final_boss_encounter(now)
 
@@ -2886,28 +3151,36 @@ class MissionEngine:
             self.active_shield_hits,
             now,
         )
+        # The time-stop ring sits on top of the world layer but UNDER the HUD.
+        self._draw_time_stop_ring()
         mega_text = ""
         mega_active = False
         if self.player_mega_shot_available:
             mega_text = "Adv. Mega Shot" if self.player_advanced_mega_shot_available else "Mega Shot"
             mega_active = self.mega_charge_blocks > 0
         width, _ = self.screen.get_size()
-        if self.player_mega_shot_available and self.player_shields_available:
-            mega_center_x = width / 2 - 112
-            shield_center_x = width / 2 + 112
-        else:
-            mega_center_x = width / 2
-            shield_center_x = width / 2
-        draw_mega_bar(self.screen, self.font, mega_text, self.mega_charge_blocks, mega_active, mega_center_x)
-        draw_player_shield_bar(
-            self.screen,
-            self.font,
-            self.shield_charges,
-            self.player_shields_available,
-            0,
-            self.max_shield_charges,
-            shield_center_x,
-        )
+        # Charge bars share one row, left-to-right: Mega, Shield, Time Stop.
+        bars = []
+        if self.player_mega_shot_available:
+            bars.append("mega")
+        if self.player_shields_available:
+            bars.append("shield")
+        if self.player_time_stop_available:
+            bars.append("time_stop")
+        spacing = 200
+        start_x = width / 2 - (len(bars) - 1) * spacing / 2
+        for index, bar in enumerate(bars):
+            center_x = start_x + index * spacing
+            if bar == "mega":
+                draw_mega_bar(self.screen, self.font, mega_text, self.mega_charge_blocks, mega_active, center_x)
+            elif bar == "shield":
+                draw_player_shield_bar(
+                    self.screen, self.font, self.shield_charges, True, 0, self.max_shield_charges, center_x
+                )
+            else:
+                draw_time_stop_bar(
+                    self.screen, self.font, self.time_stop_charges, True, 0, self.time_stop_max_charges, center_x
+                )
         draw_hud(
             self.screen,
             self.font,
@@ -2924,6 +3197,31 @@ class MissionEngine:
 
         if present:
             pygame.display.flip()
+
+    def _draw_time_stop_ring(self):
+        # Translucent light-yellow ring (shield-style) sweeping out from the
+        # ship and contracting back in, marking the time-stop boundary.
+        ring = self.time_stop
+        if ring is None:
+            return
+        radius = int(self._ring_radius)
+        if radius <= 1:
+            return
+        size = self.screen.get_size()
+        if self._ring_overlay is None or self._ring_overlay.get_size() != size:
+            self._ring_overlay = pygame.Surface(size, pygame.SRCALPHA)
+        overlay = self._ring_overlay
+        overlay.fill((0, 0, 0, 0))
+        center = (int(ring.center.x), int(ring.center.y))
+        alpha = max(0, min(255, TIME_RING_ALPHA))
+        # Three concentric rings: grey outer, lighter inner ring, grey inner-outer.
+        # Both grey rings share TIME_RING_COLOR.
+        pygame.draw.circle(overlay, (*TIME_RING_COLOR, alpha), center, radius, 10)
+        if radius > 22:
+            pygame.draw.circle(overlay, (*TIME_RING_INNER_COLOR, max(0, alpha - 35)), center, radius - 16, 4)
+        if radius > 40:
+            pygame.draw.circle(overlay, (*TIME_RING_COLOR, alpha), center, radius - 28, 10)
+        self.screen.blit(overlay, (0, 0))
 
     def _process_pending_shots(self, now, dt):
         while self.pending_shots and not target_is_available(self.pending_shots[0].target, self.drones, self.final_bosses):
@@ -2945,9 +3243,18 @@ class MissionEngine:
         if not self.final_bosses:
             return
         for final_boss in self.final_bosses:
-            update_final_boss_movement(final_boss, self.screen, dt, now)
-            final_boss.rotation = (final_boss.rotation + math.tau * dt / FINAL_BOSS_ROTATION_SECONDS) % math.tau
+            object_scale = self._object_time_scale(final_boss.pos)
+            object_dt = dt * object_scale
+            update_final_boss_movement(final_boss, self.screen, object_dt, now)
+            final_boss.rotation = (final_boss.rotation + math.tau * object_dt / FINAL_BOSS_ROTATION_SECONDS) % math.tau
             update_final_boss_shield(final_boss, now)
+            if object_scale < 1.0:
+                # Frozen: no firing or semi-boss spawning; pause the timers.
+                if final_boss.next_shot_time:
+                    final_boss.next_shot_time += dt * 1000
+                if final_boss.next_semi_boss_spawn_time:
+                    final_boss.next_semi_boss_spawn_time += dt * 1000
+                continue
             if final_boss.is_orbiting and self._boss_perspective_ready() and final_boss.next_shot_time == 0:
                 final_boss.next_shot_time = now + FINAL_BOSS_ATTACK_INTERVAL_MS
             if (
@@ -2979,20 +3286,32 @@ class MissionEngine:
     def _update_drones(self, now, dt):
         for drone in self.drones[:]:
             center = self.player_center
-            update_drone_position(drone, center, dt)
-            drone.rotation = (drone.rotation + drone_rotation_radians_per_second(drone) * dt) % math.tau
-            if drone.is_mega and now >= drone.next_shot_time:
+            object_scale = self._object_time_scale(drone.pos)
+            object_dt = dt * object_scale
+            update_drone_position(drone, center, object_dt)
+            drone.rotation = (drone.rotation + drone_rotation_radians_per_second(drone) * object_dt) % math.tau
+            if object_scale < 1.0:
+                # Frozen by the time-stop ring: no shooting; pause the cooldown so
+                # it doesn't fire the instant it un-freezes (purple drones can't
+                # spawn more drones while frozen).
+                drone.next_shot_time += dt * 1000
+            elif drone.is_mega and now >= drone.next_shot_time:
                 blocked_key = random.choice(self.final_bosses).letter if self.final_bosses else None
                 focus_keys = self.focus_keys if self.final_bosses else ()
                 fire_mega_drone(self.drones, drone, center, self.target_keys, blocked_key, focus_keys)
                 drone.next_shot_time = now + MEGA_ATTACK_INTERVAL_MS
-            if drone.pos.distance_to(center) <= drone.radius + PLAYER_COLLISION_RADIUS:
+            if object_scale >= 1.0 and drone.pos.distance_to(center) <= drone.radius + PLAYER_COLLISION_RADIUS:
                 self.drones.remove(drone)
                 explode(self.particles, drone.pos, 12)
                 play_sound(self.explosion_sound)
+                if cheats.is_enabled("3"):
+                    # Hit is fully ignored: not counted, no shield used, no life lost.
+                    continue
                 self.hits_taken += 1
                 if self._absorb_player_hit_with_shield(now):
                     continue
+                if cheats.is_enabled("2"):
+                    continue  # invincible: hit counted but no life lost
                 self.lives -= 1
                 self._save_player_resources()
                 if self.lives <= 0:
@@ -3075,7 +3394,12 @@ class MissionEngine:
         for defense_drone in self.defense_drones:
             if not defense_drone.active:
                 continue
-            defense_drone.angle = (defense_drone.angle + math.tau * dt / DEFENSE_DRONE_ORBIT_SECONDS) % math.tau
+            defense_pos = defense_drone_position(self.player_center, defense_drone)
+            # During a time stop defense drones keep orbiting (at 1/10 speed) but
+            # do not fire; otherwise they run at normal speed.
+            time_stopped = self.time_stop is not None
+            orbit_scale = TIME_STOP_POD_ROTATION_SCALE if time_stopped else 1.0
+            defense_drone.angle = (defense_drone.angle + math.tau * dt * orbit_scale / DEFENSE_DRONE_ORBIT_SECONDS) % math.tau
             defense_pos = defense_drone_position(self.player_center, defense_drone)
 
             for drone in self.drones[:]:
@@ -3087,7 +3411,9 @@ class MissionEngine:
 
             if not defense_drone.active:
                 continue
-            if now >= defense_drone.next_fire_time:
+            if time_stopped:
+                defense_drone.next_fire_time += dt * 1000  # hold fire during a time stop, pause cooldown
+            elif now >= defense_drone.next_fire_time:
                 target = self._defense_drone_target(defense_pos)
                 if target is not None:
                     defense_drone.last_shot_key = target.letter
@@ -3110,12 +3436,13 @@ class MissionEngine:
 
     def _update_defense_shots(self, dt):
         for shot in self.defense_shots[:]:
+            object_dt = dt * self._object_time_scale(shot.pos)
             if shot.target not in self.drones:
                 if shot.target is not None:
                     shot.target.incoming_defense_damage = max(0, shot.target.incoming_defense_damage - 1)
                 shot.target = None
                 add_shot_trail(self.shot_trails, shot, pygame.time.get_ticks())
-                shot.pos += shot.vel * dt
+                shot.pos += shot.vel * object_dt
                 if bullet_is_offscreen(shot, self.screen):
                     self.defense_shots.remove(shot)
                 continue
@@ -3130,7 +3457,7 @@ class MissionEngine:
             if target_vector.length_squared() > 0:
                 shot.vel = target_vector.normalize() * DEFENSE_DRONE_SHOT_SPEED
             add_shot_trail(self.shot_trails, shot, pygame.time.get_ticks())
-            shot.pos += shot.vel * dt
+            shot.pos += shot.vel * object_dt
             if bullet_is_offscreen(shot, self.screen):
                 shot.target.incoming_defense_damage = max(0, shot.target.incoming_defense_damage - 1)
                 self.defense_shots.remove(shot)
@@ -3184,13 +3511,20 @@ class MissionEngine:
                             return self._finish("restart")
                         return self._finish("menu")
                     pressed_key = event_to_lesson_key(event, self.lesson_number)
-                    if self.player_mega_shot_available and event.key == pygame.K_SPACE:
-                        self.space_held = True
-                        started_space_charge = True
+                    if event.key == pygame.K_SPACE:
+                        if self.player_mega_shot_available:
+                            self.space_held = True
+                            started_space_charge = True
+                        if self.player_time_stop_available and self._register_space_tap(now):
+                            continue
                     collected_power_up, consumed_by_power_up = handle_power_up_key(self.power_up, pressed_key)
                     if collected_power_up:
                         if collected_power_up == "shield":
                             self.shield_charges = min(self.max_shield_charges, self.shield_charges + 1)
+                        elif collected_power_up == "time_stop":
+                            self.time_stop_charges = min(
+                                self.time_stop_max_charges, self.time_stop_charges + 1
+                            )
                         else:
                             self.lives = min(player_limits.MAX_PLAYER_LIVES, self.lives + 1)
                         self.score += POWER_UP_SCORE
@@ -3233,6 +3567,7 @@ class MissionEngine:
                         and not shot_queued
                         and not started_space_charge
                         and not self._defense_drone_accuracy_grace_active(pressed_key, now)
+                        and not self._firing_locked_for_boss_intro()
                     ):
                         self._record_inaccurate_key(pressed_key, now)
                 if event.type == pygame.KEYUP:

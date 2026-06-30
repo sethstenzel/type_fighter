@@ -38,6 +38,7 @@ from game_config import (
     load_game_data_db,
     save_game_data_db,
 )
+import cheats
 import user_settings
 from player_model import (
     DEFAULT_POD,
@@ -86,6 +87,8 @@ MUTED_TEXT = (138, 150, 178)
 ACCENT = (72, 209, 204)
 LOCKED_SELECTED = (245, 203, 92)
 MENU_WHEEL_SCROLL_COOLDOWN_MS = 90
+NAV_REPEAT_DELAY_MS = 100       # hold-to-repeat: delay before the first auto-repeat
+NAV_REPEAT_INTERVAL_MS = 100    # hold-to-repeat: ~10 moves per second while held
 STARTING_LIVES = 3
 PLAYER_SHIELD_MAX_CHARGES = 3
 def running_as_frozen_app():
@@ -465,6 +468,7 @@ def normalize_players(data):
                 perfect_lessons=item.get("perfect_lessons", []),
                 high_score_lessons=item.get("high_score_lessons", []),
                 quick_lessons=item.get("quick_lessons", []),
+                time_stop_charges=item.get("time_stop_charges", 0),
                 last_mission_stats=item.get("last_mission_stats", {}),
                 mission_settings=item.get("mission_settings", {}),
                 pod=item.get("pod", {}),
@@ -509,6 +513,7 @@ def create_player_record(
     perfect_lessons=None,
     high_score_lessons=None,
     quick_lessons=None,
+    time_stop_charges=0,
     last_mission_stats=None,
     mission_settings=None,
     pod=None,
@@ -554,6 +559,7 @@ def create_player_record(
         "perfect_lessons": normalize_lesson_number_list(perfect_lessons),
         "high_score_lessons": normalize_lesson_number_list(high_score_lessons),
         "quick_lessons": normalize_lesson_number_list(quick_lessons),
+        "time_stop_charges": max(0, coerce_int(time_stop_charges, 0)),
         "last_mission_stats": last_mission_stats if isinstance(last_mission_stats, dict) else {},
         "mission_settings": normalize_mission_settings(mission_settings),
         "updated_at": updated_at if isinstance(updated_at, str) and updated_at else player_storage_sqlite.utc_now(),
@@ -722,6 +728,16 @@ def player_select_loop(screen, clock):
     visible_rows = 1
     first_visible = 0
     suppress_hover_until_redraw = False
+    nav_repeat_at = 0
+
+    def navigate(step):
+        nonlocal selected, delete_confirm, suppress_hover_until_redraw
+        if not players:
+            return
+        selected = (selected + step) % len(players)
+        play_menu_beep()
+        delete_confirm = False
+        suppress_hover_until_redraw = True
 
     while True:
         update_star_field(stars, clock.get_time() / 1000)
@@ -758,15 +774,9 @@ def player_select_loop(screen, clock):
                 elif players and event.key in (pygame.K_DELETE, pygame.K_BACKSPACE):
                     delete_confirm = True
                 elif event.key in (pygame.K_DOWN, pygame.K_s) and players:
-                    selected = (selected + 1) % len(players)
-                    play_menu_beep()
-                    delete_confirm = False
-                    suppress_hover_until_redraw = True
+                    navigate(1)
                 elif event.key in (pygame.K_UP, pygame.K_w) and players:
-                    selected = (selected - 1) % len(players)
-                    play_menu_beep()
-                    delete_confirm = False
-                    suppress_hover_until_redraw = True
+                    navigate(-1)
                 elif event.key in (pygame.K_RETURN, pygame.K_SPACE) and players:
                     return players, players[selected]
             if event.type == pygame.MOUSEBUTTONDOWN and players:
@@ -810,6 +820,18 @@ def player_select_loop(screen, clock):
                     selected = (selected + step) % len(players)
                     play_menu_beep()
                     delete_confirm = False
+
+        # Hold Up/Down (or W/S) to keep moving through the list (~3x/second).
+        held = pygame.key.get_pressed()
+        nav_dir = 1 if (held[pygame.K_DOWN] or held[pygame.K_s]) else (-1 if (held[pygame.K_UP] or held[pygame.K_w]) else 0)
+        nav_now = pygame.time.get_ticks()
+        if nav_dir == 0 or not players:
+            nav_repeat_at = 0
+        elif nav_repeat_at == 0:
+            nav_repeat_at = nav_now + NAV_REPEAT_DELAY_MS
+        elif nav_now >= nav_repeat_at:
+            navigate(nav_dir)
+            nav_repeat_at = nav_now + NAV_REPEAT_INTERVAL_MS
 
         screen = pygame.display.get_surface()
         width, height = screen.get_size()
@@ -1252,6 +1274,20 @@ def collect_mission_reward_modals(player, lesson_number, include_unlocks=True):
     queue = []
     if include_unlocks:
         queue.extend(collect_lesson_unlock_modals(lesson_number))
+        if lesson_number == mission_engine.TIME_STOP_UNLOCK_LESSON:
+            queue.append(
+                {
+                    "kind": "achievement",
+                    "title": "Time Stop Unlocked!",
+                    "text": (
+                        "You've unlocked Time Stop!\n\n"
+                        "Tap Spacebar 3 times quickly to bend time and clean up the level "
+                        "while everything else crawls.\n"
+                        "Collect Time Stop power-ups (black hexagons) from level 27 on."
+                    ),
+                    "image_path": BASE_DIR / "gfx" / "misc" / "time_stop_medal.png",
+                }
+            )
     queue.extend(collect_badge_unlock_modals(player, lesson_number))
     queue.extend(collect_new_achievement_modals(player, lesson_number))
     return queue
@@ -1467,8 +1503,11 @@ def reward_modal_loop(screen, clock, reward, background):
 
 
 def show_reward_modal_queue(screen, clock, queue):
+    # Capture the clean scene ONCE. Re-copying per modal would snapshot the
+    # previous modal's already-dimmed frame, stacking backdrops until the
+    # background turns black after the first couple of modals.
+    background = screen.copy()
     while queue:
-        background = screen.copy()
         result = reward_modal_loop(screen, clock, queue.pop(0), background)
         if result == "quit":
             return "quit"
@@ -1481,6 +1520,32 @@ def draw_square_image_button(screen, rect, image=None):
         scaled = pygame.transform.smoothscale(image, (rect.width, rect.height))
         screen.blit(scaled, rect)
     pygame.draw.rect(screen, ACCENT, rect, 2, border_radius=8)
+
+
+def draw_buy_button(screen, rect, font, hovered=False, enabled=True):
+    if not enabled:
+        fill, border, color = (12, 17, 28), (35, 42, 62), MUTED_TEXT
+    elif hovered:
+        fill, border, color = (24, 56, 40), (88, 214, 141), TEXT_COLOR
+    else:
+        fill, border, color = (20, 40, 32), (65, 110, 90), TEXT_COLOR
+    pygame.draw.rect(screen, fill, rect, border_radius=6)
+    pygame.draw.rect(screen, border, rect, 2, border_radius=6)
+    label = font.render("Buy", True, color)
+    screen.blit(label, label.get_rect(center=rect.center))
+
+
+def draw_sell_button(screen, rect, font, hovered=False, enabled=True):
+    if not enabled:
+        fill, border, color = (12, 17, 28), (35, 42, 62), MUTED_TEXT
+    elif hovered:
+        fill, border, color = (58, 28, 32), (219, 92, 101), TEXT_COLOR
+    else:
+        fill, border, color = (44, 24, 28), (110, 60, 64), TEXT_COLOR
+    pygame.draw.rect(screen, fill, rect, border_radius=6)
+    pygame.draw.rect(screen, border, rect, 2, border_radius=6)
+    label = font.render("Sell", True, color)
+    screen.blit(label, label.get_rect(center=rect.center))
 
 
 def draw_upgrades_modal(screen, title_font, body_font, small_font, player):
@@ -2031,6 +2096,20 @@ def menu_loop(screen, clock, players, player):
     visible_rows = 1
     first_visible = 0
     suppress_hover_until_redraw = False
+    nav_repeat_at = 0
+
+    def navigate(step):
+        nonlocal selected, first_visible, suppress_hover_until_redraw
+        new_selected = max(0, min(len(LESSONS) - 1, selected + step))
+        if new_selected != selected:
+            selected = new_selected
+            first_visible = keep_index_visible(selected, first_visible, len(LESSONS), visible_rows)
+            play_menu_beep()
+        suppress_hover_until_redraw = True
+
+    # Login achievement check: award (and queue modals for) any achievements the
+    # player now qualifies for -- including achievements added since they last
+    # played -- the moment they enter the menu after selecting a profile.
     pending_reward_modals = collect_new_achievement_modals(player)
     if pending_reward_modals:
         save_players(players)
@@ -2039,7 +2118,7 @@ def menu_loop(screen, clock, players, player):
         if player_storage.get("warning"):
             return "players"
         update_star_field(stars, clock.get_time() / 1000)
-        unlocked_count = unlocked_lesson_count(player)
+        unlocked_count = len(LESSONS) if cheats.is_enabled("11") else unlocked_lesson_count(player)
         upgrades_available = 2 in set(player.get("completed_lessons", []))
         if not upgrades_available:
             upgrades_button_rect = None
@@ -2081,19 +2160,9 @@ def menu_loop(screen, clock, players, player):
                     pygame.event.clear((pygame.KEYDOWN, pygame.KEYUP, pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP))
                     continue
                 if event.key in (pygame.K_DOWN, pygame.K_s):
-                    new_selected = min(len(LESSONS) - 1, selected + 1)
-                    if new_selected != selected:
-                        selected = new_selected
-                        first_visible = keep_index_visible(selected, first_visible, len(LESSONS), visible_rows)
-                        play_menu_beep()
-                    suppress_hover_until_redraw = True
+                    navigate(1)
                 if event.key in (pygame.K_UP, pygame.K_w):
-                    new_selected = max(0, selected - 1)
-                    if new_selected != selected:
-                        selected = new_selected
-                        first_visible = keep_index_visible(selected, first_visible, len(LESSONS), visible_rows)
-                        play_menu_beep()
-                    suppress_hover_until_redraw = True
+                    navigate(-1)
                 if event.key in (pygame.K_RETURN, pygame.K_SPACE):
                     if selected < unlocked_count:
                         completed_index = selected
@@ -2187,6 +2256,18 @@ def menu_loop(screen, clock, players, player):
                         selected = new_selected
                         first_visible = keep_index_visible(selected, first_visible, len(LESSONS), visible_rows)
                         play_menu_beep()
+
+        # Hold Up/Down (or W/S) to keep moving through the mission list (~3x/second).
+        held = pygame.key.get_pressed()
+        nav_dir = 1 if (held[pygame.K_DOWN] or held[pygame.K_s]) else (-1 if (held[pygame.K_UP] or held[pygame.K_w]) else 0)
+        nav_now = pygame.time.get_ticks()
+        if nav_dir == 0:
+            nav_repeat_at = 0
+        elif nav_repeat_at == 0:
+            nav_repeat_at = nav_now + NAV_REPEAT_DELAY_MS
+        elif nav_now >= nav_repeat_at:
+            navigate(nav_dir)
+            nav_repeat_at = nav_now + NAV_REPEAT_INTERVAL_MS
 
         screen = pygame.display.get_surface()
         width, height = screen.get_size()
@@ -2301,6 +2382,14 @@ def main():
     load_game_data_db(GAME_DATA_DB_PATH)
     apply_game_settings()
     setup_logging(logging_enabled())
+    if cheats.wants_listing(sys.argv):
+        for cheat_id, description in sorted(cheats.AVAILABLE_CHEATS.items()):
+            logger.info("cheat {}: {}", cheat_id, description)
+    enabled_cheats, unknown_cheats = cheats.enable_from_argv(sys.argv)
+    if enabled_cheats:
+        logger.warning("CHEATS ENABLED: {}", ", ".join(sorted(enabled_cheats)))
+    if unknown_cheats:
+        logger.warning("Unknown cheats ignored: {}", ", ".join(unknown_cheats))
     set_windows_app_id()
     pygame.init()
     try:
@@ -2320,6 +2409,8 @@ def main():
             if selection == "quit":
                 break
             players, player = selection
+            cheats.apply_player_cheats(player)
+            save_players(players)
             result = menu_loop(screen, clock, players, player)
             if result == "quit":
                 break

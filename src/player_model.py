@@ -191,6 +191,7 @@ def create_player_record(
     mission_settings=None,
     high_score_lessons=None,
     quick_lessons=None,
+    time_stop_charges=0,
 ):
     pod = dict(DEFAULT_POD if pod is None else pod)
     pod_upgrades = normalize_pod_upgrades(pod.get("upgrades", []))
@@ -221,6 +222,7 @@ def create_player_record(
         "perfect_lessons": normalize_lesson_number_list(perfect_lessons),
         "high_score_lessons": normalize_lesson_number_list(high_score_lessons),
         "quick_lessons": normalize_lesson_number_list(quick_lessons),
+        "time_stop_charges": max(0, coerce_int(time_stop_charges or 0, 0)),
         "last_mission_stats": last_mission_stats if isinstance(last_mission_stats, dict) else {},
         "mission_settings": normalize_mission_settings(mission_settings),
         "pod": {

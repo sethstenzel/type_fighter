@@ -201,6 +201,11 @@ class PlayerModelTests(unittest.TestCase):
         self.assertEqual(player["high_score_lessons"], [])
         self.assertEqual(player["quick_lessons"], [])
 
+    def test_create_player_record_time_stop_charges(self):
+        self.assertEqual(create_player_record("Pilot")["time_stop_charges"], 0)
+        self.assertEqual(create_player_record("Pilot", time_stop_charges=2)["time_stop_charges"], 2)
+        self.assertEqual(create_player_record("Pilot", time_stop_charges=True)["time_stop_charges"], 0)
+
     def test_mission_stats_are_high_score(self):
         base = {"lesson_number": 7, "won": True, "score": 9800, "high_score_goal": 9800}
         self.assertTrue(mission_stats_are_high_score(base, 7))
