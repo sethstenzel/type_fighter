@@ -250,6 +250,50 @@ class MissionMechanicsTests(unittest.TestCase):
         self.assertEqual(me.format_level_timer(999990), "T: 999.99")
         self.assertEqual(me.format_level_timer(5_000_000), "T: 999.99")
 
+    # --- Issue #19: Time Dilation ---
+    def test_time_dilation_availability(self):
+        self.assertTrue(me.player_time_dilation_available({"completed_lessons": []}, 27))
+        self.assertTrue(me.player_time_dilation_available({"completed_lessons": [26]}, 5))
+        self.assertFalse(me.player_time_dilation_available({"completed_lessons": [25]}, 5))
+
+    def test_time_dilation_power_up_enabled(self):
+        self.assertFalse(me.time_dilation_power_up_enabled(26))
+        self.assertTrue(me.time_dilation_power_up_enabled(27))
+
+    def test_time_dilation_field_easing(self):
+        field = me.TimeDilationField(10000, 0.05, 1500)
+        self.assertAlmostEqual(field.time_scale(), 0.05)  # near-frozen at start
+        field.remaining_ms = 0
+        field.active = False
+        self.assertEqual(field.time_scale(), 1.0)  # back to normal once done
+
+    def test_time_ripple_expires(self):
+        ripple = me.SpaceTimeRipple(
+            (200, 100), (100, 50), speed=100000, strength=24, wavelength=95, thickness=10, start_radius=10
+        )
+        self.assertTrue(ripple.alive)
+        ripple.update(1.0)  # huge speed pushes radius past the screen
+        self.assertFalse(ripple.alive)
+
+    def test_spawn_power_up_time_dilation_kind(self):
+        screen = pygame.Surface((640, 480))
+        kinds = set()
+        for _ in range(60):
+            p = me.spawn_power_up(
+                screen, ("a", "b"), 0, shield_enabled=False, life_enabled=False,
+                time_dilation_enabled=True, time_dilation_charges=0,
+            )
+            if p:
+                kinds.add(p.kind)
+        self.assertEqual(kinds, {"time_dilation"})
+        # no time-dilation power-up once charges are maxed
+        self.assertIsNone(
+            me.spawn_power_up(
+                screen, ("a",), 0, shield_enabled=False, life_enabled=False,
+                time_dilation_enabled=True, time_dilation_charges=3,
+            )
+        )
+
     def test_calculate_credits_earned_bonuses(self):
         engine = me.MissionEngine.__new__(me.MissionEngine)
         engine.destroyed = 50

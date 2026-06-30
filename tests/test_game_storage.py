@@ -44,6 +44,7 @@ class NormalizePlayersTests(unittest.TestCase):
         self.assertEqual(player["high_score_lessons"], [])
         self.assertEqual(player["quick_lessons"], [])
         self.assertEqual(player["perfect_lessons"], [])
+        self.assertEqual(player["time_dilation_charges"], 0)
         self.assertEqual(player["lives"], 5)
 
 
