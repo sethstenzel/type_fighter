@@ -37,6 +37,59 @@ class NormalizePlayersTests(unittest.TestCase):
         players = game.normalize_players(["x", 5, {}, {"name": "   "}, {"name": "Real"}])
         self.assertEqual([p["name"] for p in players], ["Real"])
 
+    def test_legacy_save_without_new_fields_gets_defaults(self):
+        # An old save predating the scoring/timer features must load gracefully.
+        legacy = {"name": "Legacy", "lives": 5, "completed_lessons": [1, 2], "credits": 100}
+        player = game.normalize_players([legacy])[0]
+        self.assertEqual(player["high_score_lessons"], [])
+        self.assertEqual(player["quick_lessons"], [])
+        self.assertEqual(player["perfect_lessons"], [])
+        self.assertEqual(player["lives"], 5)
+
+
+class BadgeUnlockModalTests(unittest.TestCase):
+    def _stats(self, **over):
+        base = {
+            "lesson_number": 3,
+            "won": True,
+            "score": 5000,
+            "high_score_goal": 5000,
+            "level_time_ms": 30000,
+            "quick_time_goal_ms": 60000,
+        }
+        base.update(over)
+        return base
+
+    def test_modals_emitted_when_newly_earned(self):
+        player = create_player_record("M")
+        player["last_mission_stats"] = self._stats()
+        modals = game.collect_badge_unlock_modals(player, 3)
+        titles = [m["title"] for m in modals]
+        self.assertIn("High Scorer!", titles)
+        self.assertIn("Quick Defender!", titles)
+        high = next(m for m in modals if m["title"] == "High Scorer!")
+        self.assertIn("5000", high["text"])  # shows required goal and achieved score
+
+    def test_no_modal_when_already_earned(self):
+        player = create_player_record("M", high_score_lessons=[3], quick_lessons=[3])
+        player["last_mission_stats"] = self._stats()
+        self.assertEqual(game.collect_badge_unlock_modals(player, 3), [])
+
+    def test_only_qualified_badges_emit(self):
+        player = create_player_record("M")
+        player["last_mission_stats"] = self._stats(score=10)  # below high-score goal
+        titles = [m["title"] for m in game.collect_badge_unlock_modals(player, 3)]
+        self.assertNotIn("High Scorer!", titles)
+        self.assertIn("Quick Defender!", titles)
+
+    def test_wrap_plain_text_handles_newlines(self):
+        # Regression: wrap_plain_text was missing, crashing every reward modal.
+        import pygame
+
+        pygame.font.init()
+        font = pygame.font.SysFont("arial", 20)
+        self.assertEqual(game.wrap_plain_text("alpha\n\nbeta", font, 1000), ["alpha", "", "beta"])
+
 
 class SaveRoundTripTests(unittest.TestCase):
     def setUp(self):

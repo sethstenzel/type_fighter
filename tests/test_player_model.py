@@ -13,6 +13,8 @@ from player_model import (
     achievement_requirements_met,
     coerce_int,
     create_player_record,
+    mission_stats_are_high_score,
+    mission_stats_are_quick,
     mission_stats_are_perfect,
     normalize_mission_settings,
     normalize_pod_upgrades,
@@ -191,6 +193,58 @@ class PlayerModelTests(unittest.TestCase):
         self.assertEqual(player["credits"], 0)
         self.assertEqual(player["sold_lives"], 0)
         self.assertEqual(player["sold_shields"], 0)
+
+
+    # --- Issues #15/#16: badge stat checks and marking ---
+    def test_create_player_record_has_badge_lists(self):
+        player = create_player_record("Pilot")
+        self.assertEqual(player["high_score_lessons"], [])
+        self.assertEqual(player["quick_lessons"], [])
+
+    def test_mission_stats_are_high_score(self):
+        base = {"lesson_number": 7, "won": True, "score": 9800, "high_score_goal": 9800}
+        self.assertTrue(mission_stats_are_high_score(base, 7))
+        self.assertFalse(mission_stats_are_high_score({**base, "score": 9799}, 7))   # below goal
+        self.assertFalse(mission_stats_are_high_score({**base, "won": False}, 7))    # lost
+        self.assertFalse(mission_stats_are_high_score(base, 8))                       # wrong lesson
+        self.assertFalse(mission_stats_are_high_score({**base, "high_score_goal": 0}, 7))
+
+    def test_mission_stats_are_quick(self):
+        base = {"lesson_number": 7, "won": True, "level_time_ms": 45000, "quick_time_goal_ms": 60000}
+        self.assertTrue(mission_stats_are_quick(base, 7))
+        self.assertFalse(mission_stats_are_quick({**base, "level_time_ms": 60001}, 7))  # too slow
+        self.assertFalse(mission_stats_are_quick({**base, "won": False}, 7))            # lost
+        self.assertFalse(mission_stats_are_quick({**base, "level_time_ms": 0}, 7))      # no time recorded
+
+    def test_record_latest_marks_high_score_and_quick(self):
+        player = create_player_record("Pilot")
+        player["last_mission_stats"] = {
+            "lesson_number": 3,
+            "won": True,
+            "score": 5000,
+            "high_score_goal": 5000,
+            "level_time_ms": 30000,
+            "quick_time_goal_ms": 60000,
+            "hits_taken": 1,            # not perfect
+            "accurate_inputs": 5,
+            "inaccurate_inputs": 1,
+        }
+        record_latest_mission_achievement_progress(player, 3)
+        self.assertIn(3, player["high_score_lessons"])
+        self.assertIn(3, player["quick_lessons"])
+        self.assertNotIn(3, player["perfect_lessons"])
+
+    def test_high_scorer_and_quickest_defender_achievements(self):
+        all_lessons = list(range(1, 37))
+        player = create_player_record(
+            "Pilot", high_score_lessons=all_lessons, quick_lessons=all_lessons
+        )
+        met = achievement_requirements_met(player, total_lessons=36)
+        self.assertIn("high_scorer", met)
+        self.assertIn("quickest_defender", met)
+        # missing one lesson -> not yet earned
+        partial = create_player_record("Pilot2", high_score_lessons=all_lessons[:-1])
+        self.assertNotIn("high_scorer", achievement_requirements_met(partial, total_lessons=36))
 
 
 if __name__ == "__main__":

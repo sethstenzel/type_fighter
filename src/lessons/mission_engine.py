@@ -1086,6 +1086,63 @@ def mega_shot_speed(charge_level):
     return MEGA_SHOT_SPEED_BASE * MEGA_SHOT_SPEED_MULTIPLIERS.get(level, 1.0)
 
 
+# --- Scoring (see issue #15) ------------------------------------------------
+DRONE_HIT_SCORE = 100          # per damaging hit on a regular (splitting) drone
+MINI_BOSS_SCORE = 200          # purple semi-boss, awarded on kill
+MINI_BOSS_MEGA_BONUS = 100     # extra for a one-Mega-Shot semi-boss kill
+FINAL_BOSS_SCORE = 1000        # per final boss defeated
+POWER_UP_SCORE = 100           # per power-up collected
+HIGH_SCORE_FLAT_BONUS = 500    # the standalone flat term in the goal
+HIGH_SCORE_BASE_BONUS = 2000   # the trailing "+ 2000" term in the goal
+
+
+def regular_drone_clear_score(hp):
+    # A splitting drone of N hp takes 2^N - 1 total hits to clear, each worth 100.
+    return DRONE_HIT_SCORE * ((2 ** max(1, int(hp))) - 1)
+
+
+def mega_kill_bonus(max_hp):
+    hp = max(1, int(max_hp))
+    if hp >= 3:
+        return 100   # red
+    if hp == 2:
+        return 50    # orange
+    return 0         # yellow / boss-shot
+
+
+def high_score_goal(drone_target, power_up_count, final_boss_value, semi_boss_count):
+    return (
+        int(drone_target) * 100
+        + int(power_up_count) * 100
+        + HIGH_SCORE_FLAT_BONUS
+        + int(final_boss_value)
+        + int(semi_boss_count) * 200
+        + HIGH_SCORE_BASE_BONUS
+    )
+
+
+# --- Level timing (see issue #16) -------------------------------------------
+DEFAULT_QUICK_DEFENDER_MS = 60000   # placeholder; not yet tuned per level
+QUICK_DEFENDER_TIME_GOALS = {}      # {lesson_number: milliseconds}; edit to tune
+
+
+def quick_defender_goal_ms(lesson_number):
+    return int(QUICK_DEFENDER_TIME_GOALS.get(lesson_number, DEFAULT_QUICK_DEFENDER_MS))
+
+
+def format_mission_time(ms):
+    total_seconds = max(0, int(ms) // 1000)
+    return f"{total_seconds // 60}:{total_seconds % 60:02d}"
+
+
+MAX_LEVEL_TIME_MS = 999990  # 999.99s; the level timer stops counting past this
+
+
+def format_level_timer(ms):
+    capped = min(MAX_LEVEL_TIME_MS, max(0, int(ms)))
+    return f"T: {capped / 1000:.2f}"
+
+
 def mega_target(drones, final_bosses, key, center):
     if isinstance(final_bosses, FinalBoss):
         final_bosses = [final_bosses]
@@ -1671,14 +1728,22 @@ def draw_active_player_shield(screen, center, expires_at, hits_remaining, now):
     screen.blit(shield_surface, shield_surface.get_rect(center=center))
 
 
-def draw_hud(screen, font, destroyed, drone_target, score, lives):
+def draw_hud(screen, font, destroyed, drone_target, score, lives, level_time_ms=None):
     width, _ = screen.get_size()
     left = f"Drones destroyed: {int(destroyed)}/{drone_target}"
     right = f"Score: {score}"
     life = f"Lives: {lives}"
     screen.blit(font.render(left, True, TEXT_COLOR), (22, 18))
     score_surface = font.render(right, True, TEXT_COLOR)
-    screen.blit(score_surface, (width - score_surface.get_width() - 22, 18))
+    if level_time_ms is None:
+        score_x = width - score_surface.get_width() - 22
+    else:
+        # Timer sits to the right of the score in the top-right corner.
+        timer_surface = font.render(format_level_timer(level_time_ms), True, TEXT_COLOR)
+        timer_x = width - timer_surface.get_width() - 22
+        score_x = timer_x - 24 - score_surface.get_width()
+        screen.blit(timer_surface, (timer_x, 18))
+    screen.blit(score_surface, (score_x, 18))
     life_surface = font.render(life, True, MUTED_TEXT)
     screen.blit(life_surface, (width - life_surface.get_width() - 22, 52))
 
@@ -1729,16 +1794,23 @@ def draw_end_screen(
     accurate_inputs,
     inaccurate_inputs,
     inaccurate_keys,
+    bonus_points=0,
+    level_time_ms=0,
 ):
     title_font = pygame.font.SysFont("arial", 56, bold=True)
-    body_font = pygame.font.SysFont("arial", 26)
+    body_font = pygame.font.SysFont("arial", 24)
     small_font = pygame.font.SysFont("arial", 20)
     title = "MISSION COMPLETE" if won else "MISSION FAILED"
     destroyed_count = int(min(destroyed, drone_target))
     accuracy_inputs = accurate_inputs + inaccurate_inputs
     accuracy_percent = 100 if accuracy_inputs == 0 else round(accurate_inputs * 100 / accuracy_inputs)
+    # `score` is the grand total (base + bonus). Show its components plus the total.
+    base_points = max(0, score - bonus_points)
     rows = [
-        ("Points", str(score)),
+        ("Points", str(base_points)),
+        ("Bonus points", str(bonus_points)),
+        ("Total level score", str(score)),
+        ("Time", format_mission_time(level_time_ms)),
         ("Hits taken", str(hits_taken)),
         ("Drones destroyed", f"{destroyed_count}/{drone_target}"),
         ("Accuracy", f"{accuracy_percent}%"),
@@ -1767,14 +1839,14 @@ def draw_end_screen(
 
         screen.fill(BG_COLOR)
         width, height = screen.get_size()
-        modal_rect = pygame.Rect(0, 0, min(600, width - 80), min(640, height - 32))
+        modal_rect = pygame.Rect(0, 0, min(620, width - 80), min(780, height - 24))
         modal_rect.center = (width / 2, height / 2)
         pygame.draw.rect(screen, (10, 18, 34), modal_rect, border_radius=8)
         pygame.draw.rect(screen, ACCENT if won else THREE_SHOT_DRONE_COLOR, modal_rect, 2, border_radius=8)
         title_surface = title_font.render(title, True, ACCENT if won else THREE_SHOT_DRONE_COLOR)
-        screen.blit(title_surface, title_surface.get_rect(center=(width / 2, modal_rect.y + 72)))
+        screen.blit(title_surface, title_surface.get_rect(center=(width / 2, modal_rect.y + 60)))
         for index, (label, value) in enumerate(rows):
-            y = modal_rect.y + 132 + index * 40
+            y = modal_rect.y + 116 + index * 34
             label_surface = body_font.render(label, True, MUTED_TEXT)
             value_surface = body_font.render(value, True, TEXT_COLOR)
             screen.blit(label_surface, (modal_rect.x + 58, y))
@@ -2184,12 +2256,16 @@ class MissionEngine:
         self.accurate_inputs = 0
         self.inaccurate_inputs = 0
         self.inaccurate_keys = []
-        self.accuracy_system_enabled = self.lesson_number >= ACCURACY_SYSTEM_START_LESSON
-        self.accuracy_warning_threshold, self.accuracy_limited_threshold = accuracy_thresholds_for_lesson(
-            self.lesson_number
+        self.bonus_points = 0
+        self.mission_start_ticks = None
+        self.level_time_ms = 0
+        self.high_score_goal = high_score_goal(
+            self.drone_target,
+            MAX_LIFE_POWER_UPS_PER_MISSION,
+            FINAL_BOSS_SCORE if self.final_boss_count > 0 else 0,
+            len(self.mini_boss_numbers),
         )
-        self.accuracy_charges = ACCURACY_MAX_CHARGES
-        self.next_accuracy_recharge_time = pygame.time.get_ticks() + ACCURACY_RECHARGE_INTERVAL_MS
+        self.quick_defender_goal_ms = quick_defender_goal_ms(self.lesson_number)
         self.credits_awarded = False
         self.lives = max(
             STARTING_LIVES,
@@ -2481,33 +2557,6 @@ class MissionEngine:
             return 100
         return self.accurate_inputs * 100 / total_inputs
 
-    def _update_accuracy_recharge(self, now):
-        if not self.accuracy_system_enabled:
-            return
-        if self.accuracy_charges >= ACCURACY_MAX_CHARGES:
-            self.next_accuracy_recharge_time = now + ACCURACY_RECHARGE_INTERVAL_MS
-            return
-        while self.accuracy_charges < ACCURACY_MAX_CHARGES and now >= self.next_accuracy_recharge_time:
-            self.accuracy_charges += 1
-            self.next_accuracy_recharge_time += ACCURACY_RECHARGE_INTERVAL_MS
-        if self.accuracy_charges >= ACCURACY_MAX_CHARGES:
-            self.next_accuracy_recharge_time = now + ACCURACY_RECHARGE_INTERVAL_MS
-
-    def _accuracy_fire_blocked(self):
-        return self.accuracy_system_enabled and self.accuracy_charges <= 0
-
-    def _handle_accuracy_blocked_fire(self):
-        if not self._accuracy_fire_blocked():
-            return False
-        play_sound(self.warning_sound)
-        return True
-
-    def _apply_accuracy_inaccuracy_penalty(self):
-        if not self.accuracy_system_enabled or self._accuracy_percent() >= self.accuracy_limited_threshold:
-            return
-        if self.accuracy_charges > 0:
-            self.accuracy_charges -= 1
-
     def _record_accurate_input(self, now=None):
         self.accurate_inputs += 1
 
@@ -2519,8 +2568,6 @@ class MissionEngine:
         play_sound(self.limited_sound)
         if len(self.inaccurate_keys) < 4:
             self.inaccurate_keys.append(key)
-        if now is not None:
-            self._apply_accuracy_inaccuracy_penalty()
 
     def _defense_drone_accuracy_grace_active(self, pressed_key, now):
         if pressed_key is None:
@@ -2572,6 +2619,11 @@ class MissionEngine:
                 "accuracy_percent": accuracy_percent,
                 "starting_shield_charges": max(0, self.starting_shield_charges),
                 "ending_shield_charges": max(0, self.shield_charges),
+                "score": max(0, self.score),
+                "bonus_points": max(0, self.bonus_points),
+                "level_time_ms": max(0, self.level_time_ms),
+                "high_score_goal": max(0, self.high_score_goal),
+                "quick_time_goal_ms": max(0, self.quick_defender_goal_ms),
             }
         return draw_end_screen(
             self.screen,
@@ -2585,6 +2637,8 @@ class MissionEngine:
             self.accurate_inputs,
             self.inaccurate_inputs,
             self.inaccurate_keys,
+            self.bonus_points,
+            self.level_time_ms,
         )
 
     def _boss_player_target_center(self):
@@ -2613,7 +2667,8 @@ class MissionEngine:
         self.next_spawn_rate_change_time = self._shift_timer(self.next_spawn_rate_change_time, elapsed_ms)
         self.next_spawn_time = self._shift_timer(self.next_spawn_time, elapsed_ms)
         self.next_power_up_spawn_time = self._shift_timer(self.next_power_up_spawn_time, elapsed_ms)
-        self.next_accuracy_recharge_time = self._shift_timer(self.next_accuracy_recharge_time, elapsed_ms)
+        if self.mission_start_ticks is not None:
+            self.mission_start_ticks = self._shift_timer(self.mission_start_ticks, elapsed_ms)
         self.active_shield_expires_at = self._shift_timer(self.active_shield_expires_at, elapsed_ms)
         if self.power_up is not None:
             self.power_up.expires_at += elapsed_ms
@@ -2650,7 +2705,8 @@ class MissionEngine:
             self.current_spawn_interval_ms = self._spawn_interval()
             self.next_spawn_rate_change_time = now + SPAWN_RATE_CHANGE_MS
         update_star_field(self.stars, dt)
-        self._update_accuracy_recharge(now)
+        if self.mission_start_ticks is not None:
+            self.level_time_ms = min(MAX_LEVEL_TIME_MS, max(0, now - self.mission_start_ticks))
         if self.player_mega_shot_available and self.mega_charge_blocks < MEGA_CHARGE_MAX_BLOCKS:
             if self.next_mega_recharge_time and now >= self.next_mega_recharge_time:
                 self.mega_charge_blocks += 1
@@ -2690,6 +2746,7 @@ class MissionEngine:
         play_sound(self.explosion_sound)
         if target in self.final_bosses:
             self.final_bosses.remove(target)
+        self.score += FINAL_BOSS_SCORE
         self.final_bosses_defeated += 1
         if not self.final_bosses:
             self._stop_all_music(BOSS_MUSIC_FADE_OUT_MS)
@@ -2851,7 +2908,15 @@ class MissionEngine:
             self.max_shield_charges,
             shield_center_x,
         )
-        draw_hud(self.screen, self.font, min(self.destroyed, self.drone_target), self.drone_target, self.score, self.lives)
+        draw_hud(
+            self.screen,
+            self.font,
+            min(self.destroyed, self.drone_target),
+            self.drone_target,
+            self.score,
+            self.lives,
+            self.level_time_ms,
+        )
         footer_font = pygame.font.SysFont("arial", 18)
         footer_text = "Esc: Pause  |  F11: Max size"
         footer_surface = footer_font.render(footer_text, True, MUTED_TEXT)
@@ -2955,13 +3020,12 @@ class MissionEngine:
             particle.pos += particle.vel * dt
             particle.vel *= 0.92
 
-    def _count_defense_drone_kill(self, drone):
+    def _remove_crashed_drone(self, drone):
+        # Drone destroyed by crashing (into a defense drone or the pod): no
+        # points and no level credit (see issue #15).
         pos = drone.pos.copy()
         if drone in self.drones:
             self.drones.remove(drone)
-        if drone_counts_for_level(drone):
-            self.destroyed += drone.level_value
-        self.score += 100
         explode(self.particles, pos)
         play_sound(self.explosion_sound)
 
@@ -2970,13 +3034,23 @@ class MissionEngine:
             return
         drone.incoming_defense_damage = max(0, drone.incoming_defense_damage - 1)
         drone.hp -= 1
+        if not drone.is_mega:
+            self.score += DRONE_HIT_SCORE
         if drone.hp > 0 and not drone.is_mega:
             self.drones.remove(drone)
             children = split_regular_drone(self.drones, drone)
             self._retarget_split_shots(drone, children)
             play_sound(self.split_sound)
         elif drone.hp <= 0:
-            self._count_defense_drone_kill(drone)
+            pos = drone.pos.copy()
+            if drone.is_mega:
+                self.score += MINI_BOSS_SCORE
+            if drone_counts_for_level(drone):
+                self.destroyed += drone.level_value
+            if drone in self.drones:
+                self.drones.remove(drone)
+            explode(self.particles, pos)
+            play_sound(self.explosion_sound)
 
     def _defense_drone_has_line_of_sight(self, defense_pos, target_pos):
         segment = target_pos - defense_pos
@@ -3007,7 +3081,7 @@ class MissionEngine:
             for drone in self.drones[:]:
                 if drone.pos.distance_to(defense_pos) <= drone.radius + DEFENSE_DRONE_COLLISION_RADIUS:
                     defense_drone.active = False
-                    self._count_defense_drone_kill(drone)
+                    self._remove_crashed_drone(drone)
                     explode(self.particles, defense_pos, 10)
                     break
 
@@ -3067,6 +3141,7 @@ class MissionEngine:
             return self._finish("quit")
         pygame.mouse.set_visible(False)
         pygame.event.clear((pygame.KEYDOWN, pygame.KEYUP, pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP))
+        self.mission_start_ticks = pygame.time.get_ticks()
 
         while True:
             dt, now = self._begin_frame()
@@ -3118,6 +3193,7 @@ class MissionEngine:
                             self.shield_charges = min(self.max_shield_charges, self.shield_charges + 1)
                         else:
                             self.lives = min(player_limits.MAX_PLAYER_LIVES, self.lives + 1)
+                        self.score += POWER_UP_SCORE
                         self._save_player_resources()
                         play_sound(self.health_sound)
                         self.power_up = None
@@ -3134,8 +3210,6 @@ class MissionEngine:
                             and self.mega_charge_blocks > 0
                         ):
                             final_boss_target = self.final_bosses if self._boss_perspective_ready() else []
-                            if self._handle_accuracy_blocked_fire():
-                                continue
                             queued_mega = queue_mega_shot(
                                 self.drones,
                                 final_boss_target,
@@ -3151,8 +3225,6 @@ class MissionEngine:
                                 self.mega_charge_blocks = max(0, self.mega_charge_blocks - queued_mega)
                                 self.next_mega_recharge_time = now + MEGA_RECHARGE_DELAY_MS
                                 continue
-                        if self._handle_accuracy_blocked_fire():
-                            continue
                         shot_queued = queue_shot_at(self.drones, self.pending_shots, pressed_key, self.player_center, now)
                         if shot_queued:
                             self._record_accurate_input(now)
@@ -3211,6 +3283,8 @@ class MissionEngine:
                     bullet.target.incoming_damage = max(0, bullet.target.incoming_damage - 1)
                     bullet.target.hp -= 1
                     self.bullets.remove(bullet)
+                    if not bullet.target.is_mega:
+                        self.score += DRONE_HIT_SCORE
                     if bullet.target.hp > 0 and not bullet.target.is_mega and bullet.target in self.drones:
                         hit_drone = bullet.target
                         self.drones.remove(hit_drone)
@@ -3224,7 +3298,8 @@ class MissionEngine:
                         self.drones.remove(bullet.target)
                         if counts_for_level:
                             self.destroyed += bullet.target.level_value
-                        self.score += 100
+                        if bullet.target.is_mega:
+                            self.score += MINI_BOSS_SCORE
                         explode(self.particles, pos)
                         play_sound(self.explosion_sound)
                     continue
@@ -3271,9 +3346,11 @@ class MissionEngine:
 
                     if isinstance(target, Drone) and target in self.drones:
                         damage = mega_damage_for_target(target, mega_shot.charge_level)
+                        hp_before = target.hp
                         target.incoming_damage = max(0, target.incoming_damage - damage)
                         target.hp -= damage
                         if target.hp > 0 and not target.is_mega:
+                            self.score += DRONE_HIT_SCORE * max(1, damage)
                             self.drones.remove(target)
                             children = split_regular_drone(self.drones, target)
                             self._retarget_split_shots(target, children)
@@ -3284,7 +3361,13 @@ class MissionEngine:
                             self.drones.remove(target)
                             if counts_for_level:
                                 self.destroyed += target.level_value
-                            self.score += 100
+                            if target.is_mega:
+                                bonus = MINI_BOSS_MEGA_BONUS
+                                self.score += MINI_BOSS_SCORE + bonus
+                            else:
+                                bonus = mega_kill_bonus(target.max_hp)
+                                self.score += regular_drone_clear_score(hp_before) + bonus
+                            self.bonus_points += bonus
                             explode(self.particles, pos)
                             play_sound(self.explosion_sound)
                         continue
