@@ -54,6 +54,17 @@ VIAddVersionKey "OriginalFilename" "${RELEASE_NAME}-setup.exe"
 !insertmacro MUI_LANGUAGE "English"
 
 Section "Type Fighter" SecMain
+  ; If a previous Type Fighter is installed in this folder, run its uninstaller
+  ; first so we start from a clean directory (and don't trip the not-empty guard
+  ; below). Runs silently and in-place so we can wait for it to finish.
+  IfFileExists "$INSTDIR\Uninstall.exe" 0 no_previous_uninstaller
+    DetailPrint "Removing the previous Type Fighter installation..."
+    ExecWait '"$INSTDIR\Uninstall.exe" /S _?=$INSTDIR'
+    ; A running uninstaller cannot delete itself; remove the leftover copy so the
+    ; folder is empty for the fresh install.
+    Delete "$INSTDIR\Uninstall.exe"
+  no_previous_uninstaller:
+
   ; Refuse to install into an existing, non-empty folder. This guarantees the
   ; uninstaller's recursive delete can only ever remove files we created, never
   ; a user's pre-existing data (e.g. if they point InstallDir at Documents).
