@@ -465,7 +465,7 @@ def normalize_players(data):
                 perfect_lessons=item.get("perfect_lessons", []),
                 high_score_lessons=item.get("high_score_lessons", []),
                 quick_lessons=item.get("quick_lessons", []),
-                time_dilation_charges=item.get("time_dilation_charges", 0),
+                time_stop_charges=item.get("time_stop_charges", 0),
                 last_mission_stats=item.get("last_mission_stats", {}),
                 mission_settings=item.get("mission_settings", {}),
                 pod=item.get("pod", {}),
@@ -510,7 +510,7 @@ def create_player_record(
     perfect_lessons=None,
     high_score_lessons=None,
     quick_lessons=None,
-    time_dilation_charges=0,
+    time_stop_charges=0,
     last_mission_stats=None,
     mission_settings=None,
     pod=None,
@@ -556,7 +556,7 @@ def create_player_record(
         "perfect_lessons": normalize_lesson_number_list(perfect_lessons),
         "high_score_lessons": normalize_lesson_number_list(high_score_lessons),
         "quick_lessons": normalize_lesson_number_list(quick_lessons),
-        "time_dilation_charges": max(0, coerce_int(time_dilation_charges, 0)),
+        "time_stop_charges": max(0, coerce_int(time_stop_charges, 0)),
         "last_mission_stats": last_mission_stats if isinstance(last_mission_stats, dict) else {},
         "mission_settings": normalize_mission_settings(mission_settings),
         "updated_at": updated_at if isinstance(updated_at, str) and updated_at else player_storage_sqlite.utc_now(),
@@ -1255,18 +1255,18 @@ def collect_mission_reward_modals(player, lesson_number, include_unlocks=True):
     queue = []
     if include_unlocks:
         queue.extend(collect_lesson_unlock_modals(lesson_number))
-        if lesson_number == mission_engine.TIME_DILATION_UNLOCK_LESSON:
+        if lesson_number == mission_engine.TIME_STOP_UNLOCK_LESSON:
             queue.append(
                 {
                     "kind": "achievement",
-                    "title": "Time Dilation Unlocked!",
+                    "title": "Time Stop Unlocked!",
                     "text": (
-                        "You've unlocked Time Dilation!\n\n"
+                        "You've unlocked Time Stop!\n\n"
                         "Tap Spacebar 3 times quickly to bend time and clean up the level "
                         "while everything else crawls.\n"
-                        "Collect Time Dilation power-ups (black hexagons) from level 27 on."
+                        "Collect Time Stop power-ups (black hexagons) from level 27 on."
                     ),
-                    "image_path": BASE_DIR / "gfx" / "misc" / "time_dilation_medal.png",
+                    "image_path": BASE_DIR / "gfx" / "misc" / "time_stop_medal.png",
                 }
             )
     queue.extend(collect_badge_unlock_modals(player, lesson_number))

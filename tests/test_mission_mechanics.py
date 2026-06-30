@@ -250,15 +250,15 @@ class MissionMechanicsTests(unittest.TestCase):
         self.assertEqual(me.format_level_timer(999990), "T: 999.99")
         self.assertEqual(me.format_level_timer(5_000_000), "T: 999.99")
 
-    # --- Issue #19: Time Dilation ---
-    def test_time_dilation_availability(self):
-        self.assertTrue(me.player_time_dilation_available({"completed_lessons": []}, 27))
-        self.assertTrue(me.player_time_dilation_available({"completed_lessons": [26]}, 5))
-        self.assertFalse(me.player_time_dilation_available({"completed_lessons": [25]}, 5))
+    # --- Issue #19: Time Stop ---
+    def test_time_stop_availability(self):
+        self.assertTrue(me.player_time_stop_available({"completed_lessons": []}, 27))
+        self.assertTrue(me.player_time_stop_available({"completed_lessons": [26]}, 5))
+        self.assertFalse(me.player_time_stop_available({"completed_lessons": [25]}, 5))
 
-    def test_time_dilation_power_up_enabled(self):
-        self.assertFalse(me.time_dilation_power_up_enabled(26))
-        self.assertTrue(me.time_dilation_power_up_enabled(27))
+    def test_time_stop_power_up_enabled(self):
+        self.assertFalse(me.time_stop_power_up_enabled(26))
+        self.assertTrue(me.time_stop_power_up_enabled(27))
 
     def test_time_stop_ring_sweep_and_freeze(self):
         # 5s total: expand 1s, hold 3s, contract 1s; full stop (scale 0) inside.
@@ -282,22 +282,22 @@ class MissionMechanicsTests(unittest.TestCase):
         ring = me.TimeStopRing(1000, 5000, 5000, 0.0, (0, 0), 100)
         self.assertLess(ring.expand_ms + ring.contract_ms, ring.duration_ms + 1)
 
-    def test_spawn_power_up_time_dilation_kind(self):
+    def test_spawn_power_up_time_stop_kind(self):
         screen = pygame.Surface((640, 480))
         kinds = set()
         for _ in range(60):
             p = me.spawn_power_up(
                 screen, ("a", "b"), 0, shield_enabled=False, life_enabled=False,
-                time_dilation_enabled=True, time_dilation_charges=0,
+                time_stop_enabled=True, time_stop_charges=0,
             )
             if p:
                 kinds.add(p.kind)
-        self.assertEqual(kinds, {"time_dilation"})
-        # no time-dilation power-up once charges are maxed
+        self.assertEqual(kinds, {"time_stop"})
+        # no time-stop power-up once charges are maxed
         self.assertIsNone(
             me.spawn_power_up(
                 screen, ("a",), 0, shield_enabled=False, life_enabled=False,
-                time_dilation_enabled=True, time_dilation_charges=3,
+                time_stop_enabled=True, time_stop_charges=3,
             )
         )
 

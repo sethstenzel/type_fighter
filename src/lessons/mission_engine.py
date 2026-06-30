@@ -146,20 +146,20 @@ MEGA_SHIELD_MIN_LEVEL = 3
 MEGA_FINAL_KILL_LEVEL = 5
 MEGA_MINI_BOSS_KILL_LEVEL = 4
 ACCURACY_SYSTEM_START_LESSON = 1
-# --- Time Dilation (see issue #19) ------------------------------------------
-TIME_DILATION_UNLOCK_LESSON = 26      # completing this lesson unlocks the ability
-TIME_DILATION_START_LESSON = 27       # power-ups only spawn from this lesson on
-TIME_DILATION_MAX_CHARGES = 3
-TIME_DILATION_DURATION_MS = 10000     # total time-stop duration
-TIME_DILATION_EXPAND_MS = 450         # ring sweep-out (freezes nearest objects first)
-TIME_DILATION_CONTRACT_MS = 2500      # slow recede at the end (un-freezes farthest first)
-TIME_DILATION_MIN_SPEED_SCALE = 0.0   # frozen objects' speed while inside the ring (0 = full stop)
-TIME_DILATION_TRIPLE_TAP_MS = 600     # window for the 3 rapid spacebar taps
+# --- Time Stop (see issue #19) ------------------------------------------
+TIME_STOP_UNLOCK_LESSON = 26      # completing this lesson unlocks the ability
+TIME_STOP_START_LESSON = 27       # power-ups only spawn from this lesson on
+TIME_STOP_MAX_CHARGES = 3
+TIME_STOP_DURATION_MS = 10000     # total time-stop duration
+TIME_STOP_EXPAND_MS = 450         # ring sweep-out (freezes nearest objects first)
+TIME_STOP_CONTRACT_MS = 2500      # slow recede at the end (un-freezes farthest first)
+TIME_STOP_MIN_SPEED_SCALE = 0.0   # frozen objects' speed while inside the ring (0 = full stop)
+TIME_STOP_DOUBLE_TAP_MS = 600     # window for the 3 rapid spacebar taps
 TIME_RING_COLOR = (170, 174, 184)     # grey ring
 TIME_RING_INNER_COLOR = (210, 214, 222)
 TIME_RING_ALPHA = 90                  # ring transparency (0-255)
-TIME_DILATION_POWER_UP_COLOR = (10, 10, 14)    # black hexagon
-TIME_DILATION_POWER_UP_EDGE = (236, 240, 255)  # white border
+TIME_STOP_POWER_UP_COLOR = (10, 10, 14)    # black hexagon
+TIME_STOP_POWER_UP_EDGE = (236, 240, 255)  # white border
 ACCURACY_MAX_CHARGES = 5
 ACCURACY_RECHARGE_INTERVAL_MS = 3000
 ACCURACY_THRESHOLD_BANDS = (
@@ -236,9 +236,9 @@ def apply_game_settings(settings):
     global FINAL_BOSS_ATTACK_INTERVAL_MS, FINAL_BOSS_SEMI_BOSS_FIRST_SPAWN_MS, FINAL_BOSS_SEMI_BOSS_SPAWN_INTERVAL_MS
     global FINAL_BOSS_COUNT_BY_LESSON
     global ACCURACY_THRESHOLD_BANDS
-    global TIME_DILATION_DURATION_MS, TIME_DILATION_EXPAND_MS, TIME_DILATION_CONTRACT_MS
-    global TIME_DILATION_MIN_SPEED_SCALE, TIME_DILATION_MAX_CHARGES, TIME_DILATION_START_LESSON
-    global TIME_DILATION_UNLOCK_LESSON, TIME_DILATION_TRIPLE_TAP_MS, TIME_RING_ALPHA
+    global TIME_STOP_DURATION_MS, TIME_STOP_EXPAND_MS, TIME_STOP_CONTRACT_MS
+    global TIME_STOP_MIN_SPEED_SCALE, TIME_STOP_MAX_CHARGES, TIME_STOP_START_LESSON
+    global TIME_STOP_UNLOCK_LESSON, TIME_STOP_DOUBLE_TAP_MS, TIME_RING_ALPHA
     if not isinstance(settings, dict):
         return
     STARTING_LIVES = _safe_int(settings.get("starting_lives", STARTING_LIVES), STARTING_LIVES)
@@ -277,14 +277,14 @@ def apply_game_settings(settings):
     ACCURACY_THRESHOLD_BANDS = normalize_accuracy_threshold_bands(
         settings.get("accuracy_threshold_bands", ACCURACY_THRESHOLD_BANDS)
     )
-    TIME_DILATION_DURATION_MS = _safe_int(settings.get("time_dilation_duration_ms", TIME_DILATION_DURATION_MS), TIME_DILATION_DURATION_MS)
-    TIME_DILATION_EXPAND_MS = _safe_int(settings.get("time_dilation_expand_ms", TIME_DILATION_EXPAND_MS), TIME_DILATION_EXPAND_MS)
-    TIME_DILATION_CONTRACT_MS = _safe_int(settings.get("time_dilation_contract_ms", TIME_DILATION_CONTRACT_MS), TIME_DILATION_CONTRACT_MS)
-    TIME_DILATION_MIN_SPEED_SCALE = _safe_float(settings.get("time_dilation_min_speed_scale", TIME_DILATION_MIN_SPEED_SCALE), TIME_DILATION_MIN_SPEED_SCALE)
-    TIME_DILATION_MAX_CHARGES = _safe_int(settings.get("time_dilation_max_charges", TIME_DILATION_MAX_CHARGES), TIME_DILATION_MAX_CHARGES)
-    TIME_DILATION_START_LESSON = _safe_int(settings.get("time_dilation_start_lesson", TIME_DILATION_START_LESSON), TIME_DILATION_START_LESSON)
-    TIME_DILATION_UNLOCK_LESSON = _safe_int(settings.get("time_dilation_unlock_lesson", TIME_DILATION_UNLOCK_LESSON), TIME_DILATION_UNLOCK_LESSON)
-    TIME_DILATION_TRIPLE_TAP_MS = _safe_int(settings.get("time_dilation_triple_tap_ms", TIME_DILATION_TRIPLE_TAP_MS), TIME_DILATION_TRIPLE_TAP_MS)
+    TIME_STOP_DURATION_MS = _safe_int(settings.get("time_stop_duration_ms", TIME_STOP_DURATION_MS), TIME_STOP_DURATION_MS)
+    TIME_STOP_EXPAND_MS = _safe_int(settings.get("time_stop_expand_ms", TIME_STOP_EXPAND_MS), TIME_STOP_EXPAND_MS)
+    TIME_STOP_CONTRACT_MS = _safe_int(settings.get("time_stop_contract_ms", TIME_STOP_CONTRACT_MS), TIME_STOP_CONTRACT_MS)
+    TIME_STOP_MIN_SPEED_SCALE = _safe_float(settings.get("time_stop_min_speed_scale", TIME_STOP_MIN_SPEED_SCALE), TIME_STOP_MIN_SPEED_SCALE)
+    TIME_STOP_MAX_CHARGES = _safe_int(settings.get("time_stop_max_charges", TIME_STOP_MAX_CHARGES), TIME_STOP_MAX_CHARGES)
+    TIME_STOP_START_LESSON = _safe_int(settings.get("time_stop_start_lesson", TIME_STOP_START_LESSON), TIME_STOP_START_LESSON)
+    TIME_STOP_UNLOCK_LESSON = _safe_int(settings.get("time_stop_unlock_lesson", TIME_STOP_UNLOCK_LESSON), TIME_STOP_UNLOCK_LESSON)
+    TIME_STOP_DOUBLE_TAP_MS = _safe_int(settings.get("time_stop_double_tap_ms", TIME_STOP_DOUBLE_TAP_MS), TIME_STOP_DOUBLE_TAP_MS)
     TIME_RING_ALPHA = _safe_int(settings.get("time_ring_alpha", TIME_RING_ALPHA), TIME_RING_ALPHA)
 
 
@@ -721,17 +721,17 @@ def player_shield_available(player, lesson_number):
     return all(number in completed for number in range(1, PLAYER_SHIELD_START_LESSON))
 
 
-def time_dilation_power_up_enabled(lesson_number):
-    return lesson_number >= TIME_DILATION_START_LESSON
+def time_stop_power_up_enabled(lesson_number):
+    return lesson_number >= TIME_STOP_START_LESSON
 
 
-def player_time_dilation_available(player, lesson_number):
+def player_time_stop_available(player, lesson_number):
     # Unlocked once level 26 is completed; usable in any level afterward.
-    if lesson_number > TIME_DILATION_UNLOCK_LESSON:
+    if lesson_number > TIME_STOP_UNLOCK_LESSON:
         return True
     if not isinstance(player, dict):
         return False
-    return TIME_DILATION_UNLOCK_LESSON in set(player.get("completed_lessons", []))
+    return TIME_STOP_UNLOCK_LESSON in set(player.get("completed_lessons", []))
 
 
 # DEFAULT_MISSION_SETTINGS, the spawn-rate bounds, and normalize_mission_settings
@@ -1007,9 +1007,9 @@ def spawn_power_up(
     blocked_center=None,
     blocked_radius=POWER_UP_POD_EXCLUSION_RADIUS,
     blocked_rects=(),
-    time_dilation_enabled=False,
-    time_dilation_charges=0,
-    max_time_dilation_charges=TIME_DILATION_MAX_CHARGES,
+    time_stop_enabled=False,
+    time_stop_charges=0,
+    max_time_stop_charges=TIME_STOP_MAX_CHARGES,
 ):
     width, height = screen.get_size()
     margin = 90
@@ -1022,8 +1022,8 @@ def spawn_power_up(
         kinds.append("shield")
     if life_enabled:
         kinds.append("life")
-    if time_dilation_enabled and time_dilation_charges < max_time_dilation_charges:
-        kinds.append("time_dilation")
+    if time_stop_enabled and time_stop_charges < max_time_stop_charges:
+        kinds.append("time_stop")
     if not kinds:
         return None
     kind = random.choice(kinds)
@@ -1679,7 +1679,7 @@ def draw_power_up(screen, power_up, now):
         shape_rect.center = center
         pygame.draw.rect(surface, SHIELD_POWER_UP_COLOR, shape_rect, border_radius=4)
         pygame.draw.rect(surface, (225, 246, 255), shape_rect, 3, border_radius=4)
-    elif power_up.kind == "time_dilation":
+    elif power_up.kind == "time_stop":
         radius = 30
         points = [
             (
@@ -1688,8 +1688,8 @@ def draw_power_up(screen, power_up, now):
             )
             for index in range(6)
         ]
-        pygame.draw.polygon(surface, TIME_DILATION_POWER_UP_COLOR, points)
-        pygame.draw.polygon(surface, TIME_DILATION_POWER_UP_EDGE, points, 3)
+        pygame.draw.polygon(surface, TIME_STOP_POWER_UP_COLOR, points)
+        pygame.draw.polygon(surface, TIME_STOP_POWER_UP_EDGE, points, 3)
         label_color = (236, 240, 255)
     else:
         points = (
@@ -1815,7 +1815,7 @@ def draw_player_shield_bar(screen, font, charges, enabled, y_offset=0, max_charg
     screen.blit(text_surface, text_surface.get_rect(center=(center_x, 28 + y_offset)))
 
 
-def draw_time_dilation_bar(screen, font, charges, enabled, y_offset=0, max_charges=TIME_DILATION_MAX_CHARGES, center_x=None):
+def draw_time_stop_bar(screen, font, charges, enabled, y_offset=0, max_charges=TIME_STOP_MAX_CHARGES, center_x=None):
     if not enabled:
         return
     width, _ = screen.get_size()
@@ -1843,7 +1843,7 @@ def draw_time_dilation_bar(screen, font, charges, enabled, y_offset=0, max_charg
                     pygame.draw.circle(icon, (*ring_color, 210), (middle, middle), radius, 2)
             screen.blit(icon, block_rect)
 
-    text_surface = font.render("Time", True, ring_color if charges else (80, 78, 100))
+    text_surface = font.render("Time Stop", True, ring_color if charges else (80, 78, 100))
     if not charges:
         text_surface.set_alpha(155)
     screen.blit(text_surface, text_surface.get_rect(center=(center_x, 28 + y_offset)))
@@ -2334,8 +2334,8 @@ class MissionEngine:
         self.explosion_sound = load_sound(self.sfx_dir / "explosion.ogg", 0.75)
         self.health_sound = load_sound(self.sfx_dir / "health.ogg", 0.85)
         self.shield_up_sound = load_sound(self.sfx_dir / "shield_up.wav", 0.85)
-        self.time_dilation_sound = load_sound(self.sfx_dir / "time_dilation.wav", 0.85)
-        self.time_dilation_ending_sound = load_sound(self.sfx_dir / "time_dilation_ending.wav", 0.85)
+        self.time_stop_sound = load_sound(self.sfx_dir / "time_stop.wav", 0.85)
+        self.time_stop_ending_sound = load_sound(self.sfx_dir / "time_stop_ending.wav", 0.85)
         self.split_sound = load_sound(self.sfx_dir / "split.ogg", 0.75)
         self.boss_sound = load_sound(self.sfx_dir / "boss.ogg", 0.85)
         self.victory_sound = load_sound(self.sfx_dir / "victory.wav", 0.9)
@@ -2413,15 +2413,15 @@ class MissionEngine:
             len(self.mini_boss_numbers),
         )
         self.quick_defender_goal_ms = quick_defender_goal_ms(self.lesson_number)
-        self.player_time_dilation_available = player_time_dilation_available(player, self.lesson_number)
-        self.time_dilation_power_up_enabled = time_dilation_power_up_enabled(self.lesson_number)
-        self.time_dilation_max_charges = TIME_DILATION_MAX_CHARGES
-        self.time_dilation_charges = self._player_int("time_dilation_charges", 0, 0, self.time_dilation_max_charges)
-        self.time_dilation = None
+        self.player_time_stop_available = player_time_stop_available(player, self.lesson_number)
+        self.time_stop_power_up_enabled = time_stop_power_up_enabled(self.lesson_number)
+        self.time_stop_max_charges = TIME_STOP_MAX_CHARGES
+        self.time_stop_charges = self._player_int("time_stop_charges", 0, 0, self.time_stop_max_charges)
+        self.time_stop = None
         self.current_time_scale = 1.0
         self._ring_radius = 0.0
         self._ring_overlay = None
-        self._time_dilation_ending_played = False
+        self._time_stop_ending_played = False
         self.space_tap_times = []
         self.credits_awarded = False
         self.lives = max(
@@ -2636,7 +2636,7 @@ class MissionEngine:
         self.player["lives"] = max(1, min(player_limits.MAX_PLAYER_LIVES, self.lives))
         if self.player_shields_available:
             self.player["shield_charges"] = max(0, min(self.max_shield_charges, self.shield_charges))
-        self.player["time_dilation_charges"] = max(0, min(self.time_dilation_max_charges, self.time_dilation_charges))
+        self.player["time_stop_charges"] = max(0, min(self.time_stop_max_charges, self.time_stop_charges))
 
     def _add_lifetime_score(self):
         if self.player is None:
@@ -2862,63 +2862,63 @@ class MissionEngine:
         farthest = max(math.hypot(center.x - cx, center.y - cy) for cx, cy in corners)
         return farthest + 40
 
-    def _update_time_dilation(self, dt):
-        if self.time_dilation is not None:
-            self.time_dilation.update(dt * 1000)
-            if self.time_dilation.is_contracting() and not self._time_dilation_ending_played:
-                play_sound(self.time_dilation_ending_sound)
-                self._time_dilation_ending_played = True
-            if not self.time_dilation.active:
-                self.time_dilation = None
+    def _update_time_stop(self, dt):
+        if self.time_stop is not None:
+            self.time_stop.update(dt * 1000)
+            if self.time_stop.is_contracting() and not self._time_stop_ending_played:
+                play_sound(self.time_stop_ending_sound)
+                self._time_stop_ending_played = True
+            if not self.time_stop.active:
+                self.time_stop = None
         # Cache the ring radius once per frame; while active, the ship/pod and the
         # level timer (both at/near the center) are frozen the whole time.
-        if self.time_dilation is not None:
-            self._ring_radius = self.time_dilation.radius()
-            self.current_time_scale = self.time_dilation.min_speed_scale
+        if self.time_stop is not None:
+            self._ring_radius = self.time_stop.radius()
+            self.current_time_scale = self.time_stop.min_speed_scale
         else:
             self._ring_radius = 0.0
             self.current_time_scale = 1.0
 
     def _object_time_scale(self, pos):
-        ring = self.time_dilation
+        ring = self.time_stop
         if ring is None:
             return 1.0
         distance = math.hypot(pos.x - ring.center.x, pos.y - ring.center.y)
         return ring.object_time_scale(distance, self._ring_radius)
 
-    def _activate_time_dilation(self, now):
-        if not self.player_time_dilation_available or self.time_dilation is not None:
+    def _activate_time_stop(self, now):
+        if not self.player_time_stop_available or self.time_stop is not None:
             return False
-        if self.time_dilation_charges <= 0:
+        if self.time_stop_charges <= 0:
             return False
-        self.time_dilation_charges -= 1
+        self.time_stop_charges -= 1
         self._save_player_resources()
         center = pygame.Vector2(self.player_center)
-        self.time_dilation = TimeStopRing(
-            TIME_DILATION_DURATION_MS,
-            TIME_DILATION_EXPAND_MS,
-            TIME_DILATION_CONTRACT_MS,
-            TIME_DILATION_MIN_SPEED_SCALE,
+        self.time_stop = TimeStopRing(
+            TIME_STOP_DURATION_MS,
+            TIME_STOP_EXPAND_MS,
+            TIME_STOP_CONTRACT_MS,
+            TIME_STOP_MIN_SPEED_SCALE,
             center,
             self._ring_max_radius(center),
         )
         self._ring_radius = 0.0
-        self._time_dilation_ending_played = False
+        self._time_stop_ending_played = False
         self.space_tap_times = []
-        play_sound(self.time_dilation_sound)
+        play_sound(self.time_stop_sound)
         return True
 
     def _register_space_tap(self, now):
-        self.space_tap_times = [t for t in self.space_tap_times if now - t <= TIME_DILATION_TRIPLE_TAP_MS]
+        self.space_tap_times = [t for t in self.space_tap_times if now - t <= TIME_STOP_DOUBLE_TAP_MS]
         self.space_tap_times.append(now)
-        if len(self.space_tap_times) >= 3:
-            return self._activate_time_dilation(now)
+        if len(self.space_tap_times) >= 2:
+            return self._activate_time_stop(now)
         return False
 
     def _begin_frame(self):
         dt = self.clock.tick(60) / 1000
         now = pygame.time.get_ticks()
-        self._update_time_dilation(dt)
+        self._update_time_stop(dt)
         self._update_player_center(dt)
         self.pod_rotation = (
             self.pod_rotation + math.tau * dt * self.current_time_scale / POD_ROTATION_SECONDS
@@ -3020,6 +3020,11 @@ class MissionEngine:
             )
             if drone.is_mega:
                 play_sound(self.boss_sound)
+                # A purple drone that spawns during a time stop must not spawn
+                # more drones until the stop has ended.
+                if self.time_stop is not None:
+                    remaining = max(0, self.time_stop.duration_ms - self.time_stop.elapsed_ms)
+                    drone.next_shot_time = now + int(remaining) + MEGA_ATTACK_INTERVAL_MS
             self.next_spawn_time = now + self.current_spawn_interval_ms
 
         if self.power_up is not None and now >= self.power_up.expires_at:
@@ -3036,9 +3041,9 @@ class MissionEngine:
                 self.life_power_ups_spawned < MAX_LIFE_POWER_UPS_PER_MISSION,
                 self.player_center,
                 blocked_rects=self._power_up_blocked_rects(),
-                time_dilation_enabled=self.time_dilation_power_up_enabled and self.player_time_dilation_available,
-                time_dilation_charges=self.time_dilation_charges,
-                max_time_dilation_charges=self.time_dilation_max_charges,
+                time_stop_enabled=self.time_stop_power_up_enabled and self.player_time_stop_available,
+                time_stop_charges=self.time_stop_charges,
+                max_time_stop_charges=self.time_stop_max_charges,
             )
             if self.power_up is None:
                 self.next_power_up_spawn_time = next_power_up_time(now)
@@ -3121,31 +3126,28 @@ class MissionEngine:
             mega_text = "Adv. Mega Shot" if self.player_advanced_mega_shot_available else "Mega Shot"
             mega_active = self.mega_charge_blocks > 0
         width, _ = self.screen.get_size()
-        if self.player_mega_shot_available and self.player_shields_available:
-            mega_center_x = width / 2 - 112
-            shield_center_x = width / 2 + 112
-        else:
-            mega_center_x = width / 2
-            shield_center_x = width / 2
-        draw_mega_bar(self.screen, self.font, mega_text, self.mega_charge_blocks, mega_active, mega_center_x)
-        draw_player_shield_bar(
-            self.screen,
-            self.font,
-            self.shield_charges,
-            self.player_shields_available,
-            0,
-            self.max_shield_charges,
-            shield_center_x,
-        )
-        draw_time_dilation_bar(
-            self.screen,
-            self.font,
-            self.time_dilation_charges,
-            self.player_time_dilation_available,
-            44,
-            self.time_dilation_max_charges,
-            width / 2,
-        )
+        # Charge bars share one row, left-to-right: Mega, Shield, Time Stop.
+        bars = []
+        if self.player_mega_shot_available:
+            bars.append("mega")
+        if self.player_shields_available:
+            bars.append("shield")
+        if self.player_time_stop_available:
+            bars.append("time_stop")
+        spacing = 170
+        start_x = width / 2 - (len(bars) - 1) * spacing / 2
+        for index, bar in enumerate(bars):
+            center_x = start_x + index * spacing
+            if bar == "mega":
+                draw_mega_bar(self.screen, self.font, mega_text, self.mega_charge_blocks, mega_active, center_x)
+            elif bar == "shield":
+                draw_player_shield_bar(
+                    self.screen, self.font, self.shield_charges, True, 0, self.max_shield_charges, center_x
+                )
+            else:
+                draw_time_stop_bar(
+                    self.screen, self.font, self.time_stop_charges, True, 0, self.time_stop_max_charges, center_x
+                )
         draw_hud(
             self.screen,
             self.font,
@@ -3166,7 +3168,7 @@ class MissionEngine:
     def _draw_time_stop_ring(self):
         # Translucent light-yellow ring (shield-style) sweeping out from the
         # ship and contracting back in, marking the time-stop boundary.
-        ring = self.time_dilation
+        ring = self.time_stop
         if ring is None:
             return
         radius = int(self._ring_radius)
@@ -3469,15 +3471,15 @@ class MissionEngine:
                         if self.player_mega_shot_available:
                             self.space_held = True
                             started_space_charge = True
-                        if self.player_time_dilation_available and self._register_space_tap(now):
+                        if self.player_time_stop_available and self._register_space_tap(now):
                             continue
                     collected_power_up, consumed_by_power_up = handle_power_up_key(self.power_up, pressed_key)
                     if collected_power_up:
                         if collected_power_up == "shield":
                             self.shield_charges = min(self.max_shield_charges, self.shield_charges + 1)
-                        elif collected_power_up == "time_dilation":
-                            self.time_dilation_charges = min(
-                                self.time_dilation_max_charges, self.time_dilation_charges + 1
+                        elif collected_power_up == "time_stop":
+                            self.time_stop_charges = min(
+                                self.time_stop_max_charges, self.time_stop_charges + 1
                             )
                         else:
                             self.lives = min(player_limits.MAX_PLAYER_LIVES, self.lives + 1)
