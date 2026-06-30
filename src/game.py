@@ -2044,17 +2044,6 @@ def attempt_upgrade_sale(screen, clock, players, player, upgrade):
     return None
 
 
-def _draw_rhombus_badge(screen, center, radius, fill, edge):
-    points = [
-        (center[0], center[1] - radius),
-        (center[0] + radius, center[1]),
-        (center[0], center[1] + radius),
-        (center[0] - radius, center[1]),
-    ]
-    pygame.draw.polygon(screen, fill, points)
-    pygame.draw.polygon(screen, edge, points, 2)
-
-
 def _draw_hexagon_badge(screen, center, radius, fill, edge):
     points = [
         (
@@ -2071,19 +2060,16 @@ def draw_lesson_badges(screen, card_rect, lesson_number, player, font):
     # Earned-badge markers on a mission card, laid out right-to-left.
     badges = []
     if lesson_number in set(normalize_lesson_number_list(player.get("perfect_lessons", []))):
-        badges.append(("P", "rhombus", (255, 190, 68), (255, 236, 156), (42, 28, 8)))
+        badges.append(("P", (255, 190, 68), (255, 236, 156), (42, 28, 8)))
     if lesson_number in set(normalize_lesson_number_list(player.get("high_score_lessons", []))):
-        badges.append(("H", "rhombus", (116, 211, 255), (208, 240, 255), (6, 28, 42)))
+        badges.append(("H", (116, 211, 255), (208, 240, 255), (6, 28, 42)))
     if lesson_number in set(normalize_lesson_number_list(player.get("quick_lessons", []))):
-        badges.append(("D", "hexagon", (88, 214, 141), (200, 245, 214), (6, 40, 22)))
+        badges.append(("D", (88, 214, 141), (200, 245, 214), (6, 40, 22)))
     radius = 15
     cx = card_rect.right - 34
-    for letter, shape, fill, edge, text_color in badges:
+    for letter, fill, edge, text_color in badges:
         center = (cx, card_rect.centery)
-        if shape == "rhombus":
-            _draw_rhombus_badge(screen, center, radius, fill, edge)
-        else:
-            _draw_hexagon_badge(screen, center, radius, fill, edge)
+        _draw_hexagon_badge(screen, center, radius, fill, edge)
         label = font.render(letter, True, text_color)
         label_rect = label.get_rect(center=center)
         label_rect.centerx += 1
