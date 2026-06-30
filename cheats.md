@@ -34,16 +34,18 @@ logged as a warning at startup. Implementation lives in `src/cheats.py`.
 | 8 | Reset high score | Resets the player's high score (lifetime score) to **0** | On player select (save) |
 | 9 | Reset achievements | Clears achievements earned so they can **trigger again** | On player select (save) |
 | 0 | Full reset | Clears credits, score, unlocked levels, achievements, and achievement rewards | On player select (save) |
-| 11 | Unlock all | Every training mission is selectable in the menu (does **not** mark them complete or alter the save) | In the mission menu |
+| 11 | Unlock all | Every training mission is **selectable in the menu** (does **not** mark them complete or alter the save) | In the mission menu |
 
 ## Notes
 
-- **Save-modifying cheats:** **1, 7, 8, 9, 0** are written to the player's save
-  the moment that player is selected, so their effects persist after you quit —
+- **Save-modifying cheats** — **1, 7, 8, 9, 0** are written to the player's save
+  the moment that player is selected, so their effects persist after you quit,
   even if you relaunch without `--cheats`. Use **8, 9, and especially 0** with
   care on a real profile (0 is a full progress wipe).
-- **Mission cheats** (2, 3, 4, 5, 6) only take effect while playing a mission and
-  leave the save alone. Cheats 4/5/6 also force the relevant ability to be
+- **Mission cheats** — **2, 3, 4, 5, 6** only take effect while playing a mission
+  and leave the save alone. Cheats 4/5/6 also force the relevant ability to be
   available even if you have not unlocked it yet.
+- **Menu cheats** — **11** is purely a runtime menu override: it makes every
+  mission selectable without touching the save or marking progress.
 - Cheats are intended for development/testing. They do not gate badges fairly
   (e.g. cheat 2 still counts hits, so it will not grant a no-damage perfect run).
