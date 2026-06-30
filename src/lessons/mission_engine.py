@@ -155,7 +155,7 @@ TIME_STOP_DURATION_MS = 10000     # total time-stop duration
 TIME_STOP_EXPAND_MS = 450         # ring sweep-out (freezes nearest objects first)
 TIME_STOP_CONTRACT_MS = 2500      # slow recede at the end (un-freezes farthest first)
 TIME_STOP_MIN_SPEED_SCALE = 0.0   # frozen objects' speed while inside the ring (0 = full stop)
-TIME_STOP_POD_ROTATION_SCALE = 1.0 / 3.0  # pod keeps rotating at this fraction during a time stop
+TIME_STOP_POD_ROTATION_SCALE = 1.0 / 10.0  # pod + defense drones keep rotating at this fraction during a time stop
 TIME_STOP_DOUBLE_TAP_MS = 600     # window for the 3 rapid spacebar taps
 TIME_RING_COLOR = (170, 174, 184)     # grey ring
 TIME_RING_INNER_COLOR = (210, 214, 222)
@@ -3393,9 +3393,11 @@ class MissionEngine:
             if not defense_drone.active:
                 continue
             defense_pos = defense_drone_position(self.player_center, defense_drone)
-            object_scale = self._object_time_scale(defense_pos)
-            object_dt = dt * object_scale
-            defense_drone.angle = (defense_drone.angle + math.tau * object_dt / DEFENSE_DRONE_ORBIT_SECONDS) % math.tau
+            # During a time stop defense drones keep orbiting (at 1/10 speed) but
+            # do not fire; otherwise they run at normal speed.
+            time_stopped = self.time_stop is not None
+            orbit_scale = TIME_STOP_POD_ROTATION_SCALE if time_stopped else 1.0
+            defense_drone.angle = (defense_drone.angle + math.tau * dt * orbit_scale / DEFENSE_DRONE_ORBIT_SECONDS) % math.tau
             defense_pos = defense_drone_position(self.player_center, defense_drone)
 
             for drone in self.drones[:]:
@@ -3407,8 +3409,8 @@ class MissionEngine:
 
             if not defense_drone.active:
                 continue
-            if object_scale < 1.0:
-                defense_drone.next_fire_time += dt * 1000  # frozen: hold fire, pause cooldown
+            if time_stopped:
+                defense_drone.next_fire_time += dt * 1000  # hold fire during a time stop, pause cooldown
             elif now >= defense_drone.next_fire_time:
                 target = self._defense_drone_target(defense_pos)
                 if target is not None:
