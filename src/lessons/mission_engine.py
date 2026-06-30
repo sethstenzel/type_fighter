@@ -3021,9 +3021,31 @@ class MissionEngine:
                 return
         max_range = AUTO_FIRE_RANGE_RATIO * self.screen.get_size()[1] / 2
         target = nearest_targetable_drone_in_range(self.drones, self.player_center, max_range)
-        if target is not None:
-            target.incoming_damage += 1
-            self.pending_shots.append(PendingShot(target=target, damage=1, created_at=now))
+        if target is None:
+            return
+        # Orange (2 hp) and red (3+ hp) drones: mega them when we have the charge.
+        if (
+            self.player_mega_shot_available
+            and not target.is_mega
+            and target.max_hp >= 2
+            and self.mega_charge_blocks >= mega_charge_required_for_target(target)
+        ):
+            queued_mega = queue_mega_shot(
+                self.drones,
+                [],
+                self.pending_shots,
+                target.letter,
+                self.player_center,
+                mega_charge_required_for_target(target),
+                now,
+                self.player_advanced_mega_shot_available,
+            )
+            if queued_mega:
+                self.mega_charge_blocks = max(0, self.mega_charge_blocks - queued_mega)
+                self.next_mega_recharge_time = now + MEGA_RECHARGE_DELAY_MS
+                return
+        target.incoming_damage += 1
+        self.pending_shots.append(PendingShot(target=target, damage=1, created_at=now))
 
     def _begin_frame(self):
         dt = self.clock.tick(60) / 1000
