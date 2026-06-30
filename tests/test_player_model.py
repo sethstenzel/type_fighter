@@ -11,6 +11,7 @@ from player_model import (
     apply_upgrade_purchase,
     apply_upgrade_sale,
     achievement_requirements_met,
+    coerce_int,
     create_player_record,
     mission_stats_are_perfect,
     normalize_mission_settings,
@@ -163,6 +164,33 @@ class PlayerModelTests(unittest.TestCase):
         record_latest_mission_achievement_progress(player, 23)
 
         self.assertIn(23, player["perfect_lessons"])
+
+
+    # --- Issue #9: reject booleans where integer counts are expected ---
+    def test_coerce_int_rejects_bool_and_bad_values(self):
+        self.assertEqual(coerce_int(True, 3), 3)
+        self.assertEqual(coerce_int(False, 3), 3)
+        self.assertEqual(coerce_int("7", 0), 7)
+        self.assertEqual(coerce_int("abc", 9), 9)
+        self.assertEqual(coerce_int(None, 4), 4)
+        self.assertEqual(coerce_int(5, 0), 5)
+
+    def test_create_player_record_rejects_boolean_counts(self):
+        player = create_player_record(
+            "Pilot",
+            lives=True,
+            shield_charges=True,
+            lifetime_score=True,
+            credits=True,
+            sold_lives=True,
+            sold_shields=True,
+        )
+        self.assertEqual(player["lives"], 3)  # default, not bool-as-1
+        self.assertEqual(player["shield_charges"], 0)
+        self.assertEqual(player["lifetime_score"], 0)
+        self.assertEqual(player["credits"], 0)
+        self.assertEqual(player["sold_lives"], 0)
+        self.assertEqual(player["sold_shields"], 0)
 
 
 if __name__ == "__main__":

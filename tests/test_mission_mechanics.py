@@ -7,6 +7,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import pygame
 
+import lessons.mission_engine as me
+import player_model
 from lessons.mission_engine import (
     Drone,
     FinalBoss,
@@ -14,12 +16,19 @@ from lessons.mission_engine import (
     accuracy_thresholds_for_lesson,
     defense_drone_remaining_shot_capacity,
     event_to_lesson_key,
+    final_boss_count,
     mega_charge_required_for_target,
     mega_damage_for_target,
+    mega_shot_speed,
     mission_target_keys,
+    normalize_mission_settings,
     player_defense_drone_count,
     queue_shot_at,
     queue_mega_shot,
+    random_spawn_key,
+    spawn_final_boss,
+    spawn_power_up,
+    target_is_available,
 )
 
 
@@ -151,6 +160,77 @@ class MissionMechanicsTests(unittest.TestCase):
         self.assertEqual(event_to_lesson_key(symbol_event, 27), "!")
         self.assertNotIn("shift", mission_target_keys(("shift", "a", "!"), 27, mega_available=True))
         self.assertIn("!", mission_target_keys(("shift", "a", "!"), 27, mega_available=True))
+
+    # --- Issue #8: empty key-set guards ---
+    def test_random_spawn_key_handles_empty_key_sets(self):
+        self.assertEqual(random_spawn_key(()), "")
+        self.assertEqual(random_spawn_key((), blocked_key="x"), "")
+        # falls back to valid_keys when the only available key is the blocked one
+        self.assertEqual(random_spawn_key(("a",), blocked_key="a"), "a")
+
+    def test_spawn_power_up_returns_none_when_no_keys(self):
+        screen = pygame.Surface((640, 480))
+        self.assertIsNone(spawn_power_up(screen, (), now=0))
+
+    def test_spawn_final_boss_handles_empty_key_sets(self):
+        screen = pygame.Surface((640, 480))
+        boss = spawn_final_boss(screen, 0, (), pygame.Vector2(320, 240), focus_keys=())
+        self.assertEqual(boss.letter, "")
+
+    # --- Issue #3: target revalidation prevents double-defeat ---
+    def test_target_is_available_tracks_membership(self):
+        drone = self.drone()
+        boss = FinalBoss(pos=pygame.Vector2(0, 0), target_pos=pygame.Vector2(1, 0), letter="k")
+        self.assertTrue(target_is_available(drone, [drone], [boss]))
+        self.assertTrue(target_is_available(boss, [drone], [boss]))
+        # once removed from its list, an in-flight shot must drop the target
+        self.assertFalse(target_is_available(drone, [], [boss]))
+        self.assertFalse(target_is_available(boss, [drone], []))
+
+    # --- Issue #5: mega_shot_speed table + boss-count key normalization ---
+    def test_mega_shot_speed_matches_expected_table(self):
+        self.assertEqual(mega_shot_speed(1), 820)
+        self.assertEqual(mega_shot_speed(2), 820 * 1.10)
+        self.assertEqual(mega_shot_speed(3), 820 * 1.20)
+        self.assertEqual(mega_shot_speed(4), 820 * 1.40)
+        self.assertEqual(mega_shot_speed(5), 820 * 1.80)
+
+    def test_final_boss_count_reads_str_and_int_keys(self):
+        me.apply_game_settings({"final_boss_count_by_lesson": {7: 2, "8": 3}})
+        try:
+            self.assertEqual(final_boss_count(7), 2)   # configured with an int key
+            self.assertEqual(final_boss_count(8), 3)   # configured with a str key
+            self.assertEqual(final_boss_count(9), 1)   # unconfigured -> default
+            self.assertEqual(final_boss_count(4), 0)   # no final boss before lesson 5
+        finally:
+            me.apply_game_settings({"final_boss_count_by_lesson": {}})
+
+    # --- Issue #4: single source of truth for mission settings ---
+    def test_mission_settings_normalizer_shared_with_player_model(self):
+        self.assertIs(normalize_mission_settings, player_model.normalize_mission_settings)
+        self.assertIs(me.DEFAULT_MISSION_SETTINGS, player_model.DEFAULT_MISSION_SETTINGS)
+        self.assertEqual(me.MAX_SPAWN_RATE_MULTIPLIER, player_model.MAX_SPAWN_RATE_MULTIPLIER)
+
+    # --- Issue #13: accuracy band boundaries + credit math ---
+    def test_accuracy_thresholds_out_of_range_lessons(self):
+        self.assertEqual(accuracy_thresholds_for_lesson(0), (100, 100))
+        self.assertEqual(accuracy_thresholds_for_lesson(-5), (100, 100))
+        self.assertEqual(accuracy_thresholds_for_lesson(999), (80, 70))  # last open-ended band
+
+    def test_calculate_credits_earned_bonuses(self):
+        engine = me.MissionEngine.__new__(me.MissionEngine)
+        engine.destroyed = 50
+        engine.drone_target = 46
+        engine.hits_taken = 0
+        engine.inaccurate_inputs = 0
+        win_perfect = 46 + 50 + 25 + me.ENERGY_SAVER_BONUS_CREDITS
+        self.assertEqual(engine._calculate_credits_earned(True), win_perfect)
+        # damage + inaccuracies -> only base destroyed count + win bonus
+        engine.hits_taken = 2
+        engine.inaccurate_inputs = 3
+        self.assertEqual(engine._calculate_credits_earned(True), 46 + 50)
+        # a loss awards only the destroyed count, capped at the target
+        self.assertEqual(engine._calculate_credits_earned(False), 46)
 
 
 if __name__ == "__main__":

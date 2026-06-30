@@ -46,6 +46,7 @@ from player_model import (
     apply_upgrade_sale,
     achievement_count,
     achievement_requirements_met as model_achievement_requirements_met,
+    coerce_int,
     color_value,
     disabled_icon_name,
     has_achievement,
@@ -444,12 +445,8 @@ def normalize_players(data):
                 if isinstance(lesson, int) and 1 <= lesson <= len(LESSONS)
             }
         )
-        lives = item.get("lives", STARTING_LIVES)
-        if not isinstance(lives, int):
-            lives = STARTING_LIVES
-        shield_charges = item.get("shield_charges", 0)
-        if not isinstance(shield_charges, int):
-            shield_charges = 0
+        lives = coerce_int(item.get("lives", STARTING_LIVES), STARTING_LIVES)
+        shield_charges = coerce_int(item.get("shield_charges", 0), 0)
         players.append(
             create_player_record(
                 name[:24],
@@ -512,10 +509,8 @@ def create_player_record(
     updated_at="",
     game_version=CLIENT_VERSION,
 ):
-    if not isinstance(lifetime_score, int):
-        lifetime_score = 0
-    if not isinstance(credits, int):
-        credits = 0
+    lifetime_score = coerce_int(lifetime_score, 0)
+    credits = coerce_int(credits, 0)
     pod = pod if isinstance(pod, dict) else {}
     pod_color = pod.get("color", DEFAULT_POD["color"])
     pod_type = pod.get("type", DEFAULT_POD["type"])
@@ -547,8 +542,8 @@ def create_player_record(
         "lifetime_score": max(0, lifetime_score),
         "achievements": achievement_awards,
         "purchased_upgrade_ids": normalize_string_list(purchased_upgrade_ids),
-        "sold_lives": max(0, sold_lives) if isinstance(sold_lives, int) else 0,
-        "sold_shields": max(0, sold_shields) if isinstance(sold_shields, int) else 0,
+        "sold_lives": max(0, coerce_int(sold_lives, 0)),
+        "sold_shields": max(0, coerce_int(sold_shields, 0)),
         "credits": max(0, credits),
         "perfect_lessons": normalize_lesson_number_list(perfect_lessons),
         "last_mission_stats": last_mission_stats if isinstance(last_mission_stats, dict) else {},

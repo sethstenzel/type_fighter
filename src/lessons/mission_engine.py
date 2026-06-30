@@ -27,6 +27,13 @@ from display_helpers import (
 from lessons.key_render import display_key, render_inline_center, render_inline_text, render_key_label
 from lessons.lesson_config import lesson_new_keys
 import player_limits
+from player_model import (
+    DEFAULT_MISSION_SETTINGS,
+    MAX_SPAWN_RATE_MULTIPLIER,
+    MIN_SPAWN_RATE_MULTIPLIER,
+    SPAWN_RATE_MULTIPLIER_STEP,
+    normalize_mission_settings,
+)
 
 
 BG_COLOR = (5, 9, 20)
@@ -191,6 +198,12 @@ def _safe_int(value, default):
         return default
 
 
+def _normalize_boss_counts(counts):
+    if not isinstance(counts, dict):
+        return {}
+    return {str(key): value for key, value in counts.items()}
+
+
 def apply_game_settings(settings):
     global STARTING_LIVES, ENERGY_SAVER_BONUS_CREDITS, MAX_LIFE_POWER_UPS_PER_MISSION
     global POWER_UP_DURATION_MS, POWER_UP_WARNING_MS, POWER_UP_MIN_INTERVAL_MS, POWER_UP_MAX_INTERVAL_MS
@@ -236,7 +249,7 @@ def apply_game_settings(settings):
         FINAL_BOSS_SEMI_BOSS_SPAWN_INTERVAL_MS,
     )
     counts = settings.get("final_boss_count_by_lesson", FINAL_BOSS_COUNT_BY_LESSON)
-    FINAL_BOSS_COUNT_BY_LESSON = counts if isinstance(counts, dict) else {}
+    FINAL_BOSS_COUNT_BY_LESSON = _normalize_boss_counts(counts)
     ACCURACY_THRESHOLD_BANDS = normalize_accuracy_threshold_bands(
         settings.get("accuracy_threshold_bands", ACCURACY_THRESHOLD_BANDS)
     )
@@ -594,7 +607,7 @@ def player_advanced_mega_shot_available(player, lesson_number):
 def final_boss_count(lesson_number):
     if lesson_number < 5:
         return 0
-    configured = FINAL_BOSS_COUNT_BY_LESSON.get(str(lesson_number), FINAL_BOSS_COUNT_BY_LESSON.get(lesson_number, 1))
+    configured = FINAL_BOSS_COUNT_BY_LESSON.get(str(lesson_number), 1)
     try:
         return max(0, int(configured))
     except (TypeError, ValueError):
@@ -627,35 +640,9 @@ def player_shield_available(player, lesson_number):
     return all(number in completed for number in range(1, PLAYER_SHIELD_START_LESSON))
 
 
-DEFAULT_MISSION_SETTINGS = {
-    "disable_defense_drones": False,
-    "disable_mega_shot": False,
-    "disable_shields": False,
-    "spawn_rate_multiplier": 1.0,
-    "music_enabled": True,
-}
-MIN_SPAWN_RATE_MULTIPLIER = 1.0
-MAX_SPAWN_RATE_MULTIPLIER = 5.0
-SPAWN_RATE_MULTIPLIER_STEP = 0.2
-
-
-def normalize_mission_settings(settings):
-    if not isinstance(settings, dict):
-        settings = {}
-    normalized = dict(DEFAULT_MISSION_SETTINGS)
-    for key in ("disable_defense_drones", "disable_mega_shot", "disable_shields", "music_enabled"):
-        if key in settings:
-            normalized[key] = bool(settings[key])
-    try:
-        multiplier = float(settings.get("spawn_rate_multiplier", normalized["spawn_rate_multiplier"]))
-    except (TypeError, ValueError):
-        multiplier = normalized["spawn_rate_multiplier"]
-    multiplier = round(multiplier / SPAWN_RATE_MULTIPLIER_STEP) * SPAWN_RATE_MULTIPLIER_STEP
-    normalized["spawn_rate_multiplier"] = max(
-        MIN_SPAWN_RATE_MULTIPLIER,
-        min(MAX_SPAWN_RATE_MULTIPLIER, round(multiplier, 1)),
-    )
-    return normalized
+# DEFAULT_MISSION_SETTINGS, the spawn-rate bounds, and normalize_mission_settings
+# are defined in player_model and imported above, so there is a single source of
+# truth shared by the data layer and the mission engine.
 
 
 def player_mission_settings(player):
@@ -829,7 +816,8 @@ def random_spawn_key(valid_keys, blocked_key=None, preferred_keys=(), preferred_
     weighted_keys = [key for key in preferred_keys if key in available_keys]
     if weighted_keys and random.random() < preferred_weight:
         return random.choice(weighted_keys)
-    return random.choice(available_keys or list(valid_keys))
+    pool = available_keys or list(valid_keys)
+    return random.choice(pool) if pool else ""
 
 
 def spawn_drone(drones, screen, destroyed, valid_keys, is_mega=False, spawn_keys=None):
@@ -929,6 +917,8 @@ def spawn_power_up(
     width, height = screen.get_size()
     margin = 90
     power_up_keys = [key for key in valid_keys if len(key) == 1 and key.isalpha()] or list(valid_keys)
+    if not power_up_keys:
+        return None
     keys = random.choices(power_up_keys, k=2)
     can_spawn_shield = shield_enabled and shield_charges < max_shield_charges
     if can_spawn_shield and (not life_enabled or random.random() < 0.5):
@@ -1082,15 +1072,18 @@ def mega_charge_required_for_target(target):
     return MEGA_CHARGE_MAX_BLOCKS
 
 
+MEGA_SHOT_SPEED_BASE = 820
+MEGA_SHOT_SPEED_MULTIPLIERS = {
+    2: 1.10,
+    3: 1.20,
+    4: 1.40,
+    5: 1.80,
+}
+
+
 def mega_shot_speed(charge_level):
     level = max(1, min(MEGA_CHARGE_MAX_BLOCKS, charge_level))
-    speed_multipliers = {
-        2: 1.10,
-        3: 1.20,
-        4: 1.40,
-        5: 1.80,
-    }
-    return 820 * speed_multipliers.get(level, 1.0)
+    return MEGA_SHOT_SPEED_BASE * MEGA_SHOT_SPEED_MULTIPLIERS.get(level, 1.0)
 
 
 def mega_target(drones, final_bosses, key, center):
@@ -1258,7 +1251,7 @@ def spawn_final_boss(screen, now, valid_keys, player_center, focus_keys=(), inde
     return FinalBoss(
         pos=spawn_pos,
         target_pos=target_pos,
-        letter=random.choice(focus_keys or valid_keys),
+        letter=random_spawn_key(valid_keys, preferred_keys=focus_keys, preferred_weight=1.0),
         orbit_angle=(index / total) * math.tau,
         orbit_radius=0,
         orbit_direction=1 if index % 2 == 0 else -1,
@@ -3243,7 +3236,9 @@ class MissionEngine:
 
             for mega_shot in self.mega_shots[:]:
                 mega_shot.rotation = (mega_shot.rotation + math.tau * SHOT_ROTATIONS_PER_SECOND * dt) % math.tau
-                if isinstance(mega_shot.target, Drone) and mega_shot.target not in self.drones:
+                if mega_shot.target is not None and not target_is_available(
+                    mega_shot.target, self.drones, self.final_bosses
+                ):
                     mega_shot.target = None
 
                 if mega_shot.target is None:

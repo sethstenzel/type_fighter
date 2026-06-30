@@ -5,6 +5,7 @@ import os
 import re
 import sqlite3
 import uuid
+from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -73,8 +74,9 @@ def normalize_player_metadata(player, client_version, touch=False):
 
 
 def read_player_db(path):
-    with connect_player_db(path) as connection:
-        init_player_db(connection)
+    with closing(connect_player_db(path)) as connection:
+        with connection:
+            init_player_db(connection)
         row = connection.execute("SELECT * FROM player_profile WHERE id = 1").fetchone()
     if row is None:
         return None
@@ -95,10 +97,11 @@ def write_player_db(player, client_version, touch=True):
     normalize_player_metadata(player, client_version, touch=touch)
     path = player_db_path(player["name"])
     data_json = json.dumps(player, separators=(",", ":"))
-    with connect_player_db(path) as connection:
-        init_player_db(connection)
-        connection.execute(
-            """
+    with closing(connect_player_db(path)) as connection:
+        with connection:
+            init_player_db(connection)
+            connection.execute(
+                """
             INSERT INTO player_profile (id, player_id, name, data_json, updated_at, game_version)
             VALUES (1, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET

@@ -163,6 +163,16 @@ def normalize_lesson_number_list(values):
     return sorted(set(normalized))
 
 
+def coerce_int(value, default):
+    # bool is a subclass of int; reject it so True/False are never counted as numbers.
+    if isinstance(value, bool):
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def create_player_record(
     name,
     completed_lessons=None,
@@ -198,14 +208,14 @@ def create_player_record(
         "id": player_id,
         "name": str(name).strip()[:24],
         "completed_lessons": normalize_lesson_number_list(completed_lessons or []),
-        "lives": max(1, min(player_limits.MAX_PLAYER_LIVES, int(lives or 3))),
-        "shield_charges": max(0, int(shield_charges or 0)),
-        "lifetime_score": max(0, int(lifetime_score or 0)),
+        "lives": max(1, min(player_limits.MAX_PLAYER_LIVES, coerce_int(lives or 3, 3))),
+        "shield_charges": max(0, coerce_int(shield_charges or 0, 0)),
+        "lifetime_score": max(0, coerce_int(lifetime_score or 0, 0)),
         "achievements": achievement_awards,
         "purchased_upgrade_ids": normalize_string_list(purchased_upgrade_ids),
-        "sold_lives": max(0, int(sold_lives or 0)),
-        "sold_shields": max(0, int(sold_shields or 0)),
-        "credits": max(0, int(credits or 0)),
+        "sold_lives": max(0, coerce_int(sold_lives or 0, 0)),
+        "sold_shields": max(0, coerce_int(sold_shields or 0, 0)),
+        "credits": max(0, coerce_int(credits or 0, 0)),
         "perfect_lessons": normalize_lesson_number_list(perfect_lessons),
         "last_mission_stats": last_mission_stats if isinstance(last_mission_stats, dict) else {},
         "mission_settings": normalize_mission_settings(mission_settings),
