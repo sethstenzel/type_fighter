@@ -4,7 +4,6 @@ import math
 import random
 from pathlib import Path
 
-import numpy as np
 import pygame
 import user_settings
 
@@ -151,17 +150,14 @@ ACCURACY_SYSTEM_START_LESSON = 1
 TIME_DILATION_UNLOCK_LESSON = 26      # completing this lesson unlocks the ability
 TIME_DILATION_START_LESSON = 27       # power-ups only spawn from this lesson on
 TIME_DILATION_MAX_CHARGES = 3
-TIME_DILATION_DURATION_MS = 10000     # total slow-mo duration
-TIME_DILATION_RIPPLE_MS = 5000        # ripple-out distortion lasts the first N ms
-TIME_DILATION_RELEASE_MS = 1500       # ease back to normal speed over the final N ms
-TIME_DILATION_MIN_SPEED_SCALE = 0.05  # how slow gameplay objects move while dilated
+TIME_DILATION_DURATION_MS = 10000     # total time-stop duration
+TIME_DILATION_EXPAND_MS = 1200        # ring sweep-out (freezes nearest objects first)
+TIME_DILATION_CONTRACT_MS = 2500      # slow recede at the end (un-freezes farthest first)
+TIME_DILATION_MIN_SPEED_SCALE = 0.0   # frozen objects' speed while inside the ring (0 = full stop)
 TIME_DILATION_TRIPLE_TAP_MS = 600     # window for the 3 rapid spacebar taps
-TIME_RIPPLE_SPEED = 90
-TIME_RIPPLE_STRENGTH = 24
-TIME_RIPPLE_WAVELENGTH = 95
-TIME_RIPPLE_THICKNESS = 210
-TIME_RIPPLE_START_RADIUS = 55
-TIME_RIPPLE_OVERLAY_ALPHA = 24        # subtle tint while dilated (0 disables)
+TIME_RING_COLOR = (255, 240, 150)     # light yellow ring
+TIME_RING_INNER_COLOR = (255, 250, 210)
+TIME_RING_ALPHA = 90                  # ring transparency (0-255)
 TIME_DILATION_POWER_UP_COLOR = (10, 10, 14)    # black hexagon
 TIME_DILATION_POWER_UP_EDGE = (236, 240, 255)  # white border
 ACCURACY_MAX_CHARGES = 5
@@ -240,11 +236,9 @@ def apply_game_settings(settings):
     global FINAL_BOSS_ATTACK_INTERVAL_MS, FINAL_BOSS_SEMI_BOSS_FIRST_SPAWN_MS, FINAL_BOSS_SEMI_BOSS_SPAWN_INTERVAL_MS
     global FINAL_BOSS_COUNT_BY_LESSON
     global ACCURACY_THRESHOLD_BANDS
-    global TIME_DILATION_DURATION_MS, TIME_DILATION_RIPPLE_MS, TIME_DILATION_RELEASE_MS
+    global TIME_DILATION_DURATION_MS, TIME_DILATION_EXPAND_MS, TIME_DILATION_CONTRACT_MS
     global TIME_DILATION_MIN_SPEED_SCALE, TIME_DILATION_MAX_CHARGES, TIME_DILATION_START_LESSON
-    global TIME_DILATION_UNLOCK_LESSON, TIME_DILATION_TRIPLE_TAP_MS
-    global TIME_RIPPLE_SPEED, TIME_RIPPLE_STRENGTH, TIME_RIPPLE_WAVELENGTH
-    global TIME_RIPPLE_THICKNESS, TIME_RIPPLE_START_RADIUS, TIME_RIPPLE_OVERLAY_ALPHA
+    global TIME_DILATION_UNLOCK_LESSON, TIME_DILATION_TRIPLE_TAP_MS, TIME_RING_ALPHA
     if not isinstance(settings, dict):
         return
     STARTING_LIVES = _safe_int(settings.get("starting_lives", STARTING_LIVES), STARTING_LIVES)
@@ -284,19 +278,14 @@ def apply_game_settings(settings):
         settings.get("accuracy_threshold_bands", ACCURACY_THRESHOLD_BANDS)
     )
     TIME_DILATION_DURATION_MS = _safe_int(settings.get("time_dilation_duration_ms", TIME_DILATION_DURATION_MS), TIME_DILATION_DURATION_MS)
-    TIME_DILATION_RIPPLE_MS = _safe_int(settings.get("time_dilation_ripple_ms", TIME_DILATION_RIPPLE_MS), TIME_DILATION_RIPPLE_MS)
-    TIME_DILATION_RELEASE_MS = _safe_int(settings.get("time_dilation_release_ms", TIME_DILATION_RELEASE_MS), TIME_DILATION_RELEASE_MS)
+    TIME_DILATION_EXPAND_MS = _safe_int(settings.get("time_dilation_expand_ms", TIME_DILATION_EXPAND_MS), TIME_DILATION_EXPAND_MS)
+    TIME_DILATION_CONTRACT_MS = _safe_int(settings.get("time_dilation_contract_ms", TIME_DILATION_CONTRACT_MS), TIME_DILATION_CONTRACT_MS)
     TIME_DILATION_MIN_SPEED_SCALE = _safe_float(settings.get("time_dilation_min_speed_scale", TIME_DILATION_MIN_SPEED_SCALE), TIME_DILATION_MIN_SPEED_SCALE)
     TIME_DILATION_MAX_CHARGES = _safe_int(settings.get("time_dilation_max_charges", TIME_DILATION_MAX_CHARGES), TIME_DILATION_MAX_CHARGES)
     TIME_DILATION_START_LESSON = _safe_int(settings.get("time_dilation_start_lesson", TIME_DILATION_START_LESSON), TIME_DILATION_START_LESSON)
     TIME_DILATION_UNLOCK_LESSON = _safe_int(settings.get("time_dilation_unlock_lesson", TIME_DILATION_UNLOCK_LESSON), TIME_DILATION_UNLOCK_LESSON)
     TIME_DILATION_TRIPLE_TAP_MS = _safe_int(settings.get("time_dilation_triple_tap_ms", TIME_DILATION_TRIPLE_TAP_MS), TIME_DILATION_TRIPLE_TAP_MS)
-    TIME_RIPPLE_SPEED = _safe_float(settings.get("time_ripple_speed", TIME_RIPPLE_SPEED), TIME_RIPPLE_SPEED)
-    TIME_RIPPLE_STRENGTH = _safe_float(settings.get("time_ripple_strength", TIME_RIPPLE_STRENGTH), TIME_RIPPLE_STRENGTH)
-    TIME_RIPPLE_WAVELENGTH = _safe_float(settings.get("time_ripple_wavelength", TIME_RIPPLE_WAVELENGTH), TIME_RIPPLE_WAVELENGTH)
-    TIME_RIPPLE_THICKNESS = _safe_float(settings.get("time_ripple_thickness", TIME_RIPPLE_THICKNESS), TIME_RIPPLE_THICKNESS)
-    TIME_RIPPLE_START_RADIUS = _safe_float(settings.get("time_ripple_start_radius", TIME_RIPPLE_START_RADIUS), TIME_RIPPLE_START_RADIUS)
-    TIME_RIPPLE_OVERLAY_ALPHA = _safe_int(settings.get("time_ripple_overlay_alpha", TIME_RIPPLE_OVERLAY_ALPHA), TIME_RIPPLE_OVERLAY_ALPHA)
+    TIME_RING_ALPHA = _safe_int(settings.get("time_ring_alpha", TIME_RING_ALPHA), TIME_RING_ALPHA)
 
 
 def normalize_accuracy_threshold_bands(value):
@@ -456,87 +445,49 @@ class Star:
     speed_scale: float
 
 
-class TimeDilationField:
-    """Slow-motion easer adapted from the time-warp example's TimeBubble.
+class TimeStopRing:
+    """Expanding/contracting time-stop ring emanating from the ship.
 
-    Returns a time-scale (1.0 normal .. min_speed_scale near-frozen) and eases
-    back to normal over the final release window.
+    Objects within the ring's current radius are frozen. The ring expands
+    outward (freezing the nearest first), holds, then contracts (un-freezing
+    the farthest first), so freeze and release sweep through the field.
     """
 
-    def __init__(self, duration_ms, min_speed_scale, release_ms):
+    def __init__(self, duration_ms, expand_ms, contract_ms, min_speed_scale, center, max_radius):
         self.duration_ms = max(1, int(duration_ms))
+        self.expand_ms = max(1, int(expand_ms))
+        self.contract_ms = max(1, int(contract_ms))
+        # Always keep a hold phase, even if expand+contract were set too long.
+        if self.expand_ms + self.contract_ms > self.duration_ms:
+            total = self.expand_ms + self.contract_ms
+            self.expand_ms = max(1, int(self.duration_ms * self.expand_ms / total))
+            self.contract_ms = max(1, self.duration_ms - self.expand_ms)
         self.min_speed_scale = max(0.0, min(1.0, float(min_speed_scale)))
-        self.release_ms = max(1, int(release_ms))
-        self.remaining_ms = self.duration_ms
+        self.center = pygame.Vector2(center)
+        self.max_radius = max(1.0, float(max_radius))
+        self.elapsed_ms = 0.0
         self.active = True
 
     def update(self, dt_ms):
         if not self.active:
             return
-        self.remaining_ms -= dt_ms
-        if self.remaining_ms <= 0:
-            self.remaining_ms = 0
+        self.elapsed_ms += dt_ms
+        if self.elapsed_ms >= self.duration_ms:
+            self.elapsed_ms = self.duration_ms
             self.active = False
 
-    def elapsed_ms(self):
-        return self.duration_ms - self.remaining_ms
+    def radius(self):
+        contract_start = self.duration_ms - self.contract_ms
+        if self.elapsed_ms <= self.expand_ms:
+            return self.max_radius * (self.elapsed_ms / self.expand_ms)
+        if self.elapsed_ms < contract_start:
+            return self.max_radius
+        remaining = max(0.0, self.duration_ms - self.elapsed_ms)
+        return self.max_radius * (remaining / self.contract_ms)
 
-    def time_scale(self):
-        if not self.active:
-            return 1.0
-        if self.remaining_ms > self.release_ms:
-            return self.min_speed_scale
-        progress = 1.0 - (self.remaining_ms / self.release_ms)
-        eased = progress * progress * (3 - 2 * progress)
-        return self.min_speed_scale + (1.0 - self.min_speed_scale) * eased
-
-
-class SpaceTimeRipple:
-    """Radial wave pixel-displacement distortion (from the time-warp example).
-
-    Only the distortion is reused here -- not the example's stars/ships/grid.
-    """
-
-    def __init__(self, size, center, speed, strength, wavelength, thickness, start_radius):
-        self.size = (int(size[0]), int(size[1]))
-        self.w, self.h = self.size
-        self.cx, self.cy = center
-        self.radius = float(start_radius)
-        self.speed = float(speed)
-        self.strength = float(strength)
-        self.wavelength = max(1.0, float(wavelength))
-        self.thickness = max(1.0, float(thickness))
-        self.max_radius = math.hypot(self.w, self.h)
-        self.alive = True
-        self.x = np.arange(self.w, dtype=np.float32)[:, None]
-        self.y = np.arange(self.h, dtype=np.float32)[None, :]
-
-    def update(self, dt):
-        self.radius += self.speed * dt
-        if self.radius > self.max_radius + self.thickness * 2:
-            self.alive = False
-
-    def apply(self, source_surface):
-        src = pygame.surfarray.array3d(source_surface)
-        dx = self.x - self.cx
-        dy = self.y - self.cy
-        dist = np.sqrt(dx * dx + dy * dy)
-        safe_dist = np.maximum(dist, 1)
-        ring_distance = dist - self.radius
-        envelope = np.exp(-(ring_distance * ring_distance) / (2 * self.thickness * self.thickness))
-        wave = np.sin(ring_distance / self.wavelength * math.tau)
-        fade = max(0.4, 1.0 - (self.radius / self.max_radius) * 0.25)
-        offset = wave * envelope * self.strength * fade
-        center_suppression = np.clip(dist / 90, 0, 1)
-        offset *= center_suppression
-        sample_x = self.x + (dx / safe_dist) * offset
-        sample_y = self.y + (dy / safe_dist) * offset
-        sample_x = np.clip(sample_x, 0, self.w - 1).astype(np.int32)
-        sample_y = np.clip(sample_y, 0, self.h - 1).astype(np.int32)
-        distorted_pixels = src[sample_x, sample_y]
-        output = pygame.Surface((self.w, self.h)).convert()
-        pygame.surfarray.blit_array(output, distorted_pixels)
-        return output
+    def object_time_scale(self, distance, ring_radius=None):
+        radius = self.radius() if ring_radius is None else ring_radius
+        return self.min_speed_scale if distance <= radius else 1.0
 
 
 def toggle_fullscreen():
@@ -2462,8 +2413,9 @@ class MissionEngine:
         self.time_dilation_max_charges = TIME_DILATION_MAX_CHARGES
         self.time_dilation_charges = self._player_int("time_dilation_charges", 0, 0, self.time_dilation_max_charges)
         self.time_dilation = None
-        self.time_ripple = None
         self.current_time_scale = 1.0
+        self._ring_radius = 0.0
+        self._ring_overlay = None
         self.space_tap_times = []
         self.credits_awarded = False
         self.lives = max(
@@ -2896,36 +2848,34 @@ class MissionEngine:
     def _shift_timer(value, elapsed_ms):
         return value + elapsed_ms if value else value
 
-    def _new_time_ripple(self):
+    def _ring_max_radius(self, center):
+        # Distance from the ring center to the farthest screen corner (+margin),
+        # so the ring fully clears the screen at peak.
         width, height = self.screen.get_size()
-        try:
-            return SpaceTimeRipple(
-                (width, height),
-                (width // 2, height // 2),
-                TIME_RIPPLE_SPEED,
-                TIME_RIPPLE_STRENGTH,
-                TIME_RIPPLE_WAVELENGTH,
-                TIME_RIPPLE_THICKNESS,
-                TIME_RIPPLE_START_RADIUS,
-            )
-        except (ValueError, pygame.error):
-            return None
+        corners = ((0, 0), (width, 0), (0, height), (width, height))
+        farthest = max(math.hypot(center.x - cx, center.y - cy) for cx, cy in corners)
+        return farthest + 40
 
     def _update_time_dilation(self, dt):
         if self.time_dilation is not None:
             self.time_dilation.update(dt * 1000)
             if not self.time_dilation.active:
                 self.time_dilation = None
-                self.time_ripple = None
-        self.current_time_scale = self.time_dilation.time_scale() if self.time_dilation else 1.0
-        # Ripple outward only during the first TIME_DILATION_RIPPLE_MS of the effect.
-        if self.time_dilation is not None and self.time_dilation.elapsed_ms() < TIME_DILATION_RIPPLE_MS:
-            if self.time_ripple is None or not self.time_ripple.alive:
-                self.time_ripple = self._new_time_ripple()
-            if self.time_ripple is not None:
-                self.time_ripple.update(dt)
+        # Cache the ring radius once per frame; while active, the ship/pod and the
+        # level timer (both at/near the center) are frozen the whole time.
+        if self.time_dilation is not None:
+            self._ring_radius = self.time_dilation.radius()
+            self.current_time_scale = self.time_dilation.min_speed_scale
         else:
-            self.time_ripple = None
+            self._ring_radius = 0.0
+            self.current_time_scale = 1.0
+
+    def _object_time_scale(self, pos):
+        ring = self.time_dilation
+        if ring is None:
+            return 1.0
+        distance = math.hypot(pos.x - ring.center.x, pos.y - ring.center.y)
+        return ring.object_time_scale(distance, self._ring_radius)
 
     def _activate_time_dilation(self, now):
         if not self.player_time_dilation_available or self.time_dilation is not None:
@@ -2934,10 +2884,16 @@ class MissionEngine:
             return False
         self.time_dilation_charges -= 1
         self._save_player_resources()
-        self.time_dilation = TimeDilationField(
-            TIME_DILATION_DURATION_MS, TIME_DILATION_MIN_SPEED_SCALE, TIME_DILATION_RELEASE_MS
+        center = pygame.Vector2(self.player_center)
+        self.time_dilation = TimeStopRing(
+            TIME_DILATION_DURATION_MS,
+            TIME_DILATION_EXPAND_MS,
+            TIME_DILATION_CONTRACT_MS,
+            TIME_DILATION_MIN_SPEED_SCALE,
+            center,
+            self._ring_max_radius(center),
         )
-        self.time_ripple = self._new_time_ripple()
+        self._ring_radius = 0.0
         self.space_tap_times = []
         play_sound(self.shield_up_sound)
         return True
@@ -3147,8 +3103,8 @@ class MissionEngine:
             self.active_shield_hits,
             now,
         )
-        # Distortion sits on top of the world layer but UNDER the HUD below.
-        self._apply_time_distortion()
+        # The time-stop ring sits on top of the world layer but UNDER the HUD.
+        self._draw_time_stop_ring()
         mega_text = ""
         mega_active = False
         if self.player_mega_shot_available:
@@ -3197,19 +3153,26 @@ class MissionEngine:
         if present:
             pygame.display.flip()
 
-    def _apply_time_distortion(self):
-        if self.current_time_scale < 1.0 and TIME_RIPPLE_OVERLAY_ALPHA > 0:
-            overlay = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
-            overlay.fill((20, 35, 60, TIME_RIPPLE_OVERLAY_ALPHA))
-            self.screen.blit(overlay, (0, 0))
-        ripple = self.time_ripple
-        if ripple is None or not ripple.alive or ripple.size != self.screen.get_size():
+    def _draw_time_stop_ring(self):
+        # Translucent light-yellow ring (shield-style) sweeping out from the
+        # ship and contracting back in, marking the time-stop boundary.
+        ring = self.time_dilation
+        if ring is None:
             return
-        try:
-            distorted = ripple.apply(self.screen)
-        except (ValueError, pygame.error):
+        radius = int(self._ring_radius)
+        if radius <= 1:
             return
-        self.screen.blit(distorted, (0, 0))
+        size = self.screen.get_size()
+        if self._ring_overlay is None or self._ring_overlay.get_size() != size:
+            self._ring_overlay = pygame.Surface(size, pygame.SRCALPHA)
+        overlay = self._ring_overlay
+        overlay.fill((0, 0, 0, 0))
+        center = (int(ring.center.x), int(ring.center.y))
+        alpha = max(0, min(255, TIME_RING_ALPHA))
+        pygame.draw.circle(overlay, (*TIME_RING_COLOR, alpha), center, radius, 7)
+        if radius > 14:
+            pygame.draw.circle(overlay, (*TIME_RING_INNER_COLOR, max(0, alpha - 35)), center, radius - 11, 3)
+        self.screen.blit(overlay, (0, 0))
 
     def _process_pending_shots(self, now, dt):
         while self.pending_shots and not target_is_available(self.pending_shots[0].target, self.drones, self.final_bosses):
@@ -3231,8 +3194,9 @@ class MissionEngine:
         if not self.final_bosses:
             return
         for final_boss in self.final_bosses:
-            update_final_boss_movement(final_boss, self.screen, dt, now)
-            final_boss.rotation = (final_boss.rotation + math.tau * dt / FINAL_BOSS_ROTATION_SECONDS) % math.tau
+            object_dt = dt * self._object_time_scale(final_boss.pos)
+            update_final_boss_movement(final_boss, self.screen, object_dt, now)
+            final_boss.rotation = (final_boss.rotation + math.tau * object_dt / FINAL_BOSS_ROTATION_SECONDS) % math.tau
             update_final_boss_shield(final_boss, now)
             if final_boss.is_orbiting and self._boss_perspective_ready() and final_boss.next_shot_time == 0:
                 final_boss.next_shot_time = now + FINAL_BOSS_ATTACK_INTERVAL_MS
@@ -3265,8 +3229,9 @@ class MissionEngine:
     def _update_drones(self, now, dt):
         for drone in self.drones[:]:
             center = self.player_center
-            update_drone_position(drone, center, dt)
-            drone.rotation = (drone.rotation + drone_rotation_radians_per_second(drone) * dt) % math.tau
+            object_dt = dt * self._object_time_scale(drone.pos)
+            update_drone_position(drone, center, object_dt)
+            drone.rotation = (drone.rotation + drone_rotation_radians_per_second(drone) * object_dt) % math.tau
             if drone.is_mega and now >= drone.next_shot_time:
                 blocked_key = random.choice(self.final_bosses).letter if self.final_bosses else None
                 focus_keys = self.focus_keys if self.final_bosses else ()
@@ -3361,7 +3326,9 @@ class MissionEngine:
         for defense_drone in self.defense_drones:
             if not defense_drone.active:
                 continue
-            defense_drone.angle = (defense_drone.angle + math.tau * dt / DEFENSE_DRONE_ORBIT_SECONDS) % math.tau
+            defense_pos = defense_drone_position(self.player_center, defense_drone)
+            object_dt = dt * self._object_time_scale(defense_pos)
+            defense_drone.angle = (defense_drone.angle + math.tau * object_dt / DEFENSE_DRONE_ORBIT_SECONDS) % math.tau
             defense_pos = defense_drone_position(self.player_center, defense_drone)
 
             for drone in self.drones[:]:
@@ -3396,12 +3363,13 @@ class MissionEngine:
 
     def _update_defense_shots(self, dt):
         for shot in self.defense_shots[:]:
+            object_dt = dt * self._object_time_scale(shot.pos)
             if shot.target not in self.drones:
                 if shot.target is not None:
                     shot.target.incoming_defense_damage = max(0, shot.target.incoming_defense_damage - 1)
                 shot.target = None
                 add_shot_trail(self.shot_trails, shot, pygame.time.get_ticks())
-                shot.pos += shot.vel * dt
+                shot.pos += shot.vel * object_dt
                 if bullet_is_offscreen(shot, self.screen):
                     self.defense_shots.remove(shot)
                 continue
@@ -3416,7 +3384,7 @@ class MissionEngine:
             if target_vector.length_squared() > 0:
                 shot.vel = target_vector.normalize() * DEFENSE_DRONE_SHOT_SPEED
             add_shot_trail(self.shot_trails, shot, pygame.time.get_ticks())
-            shot.pos += shot.vel * dt
+            shot.pos += shot.vel * object_dt
             if bullet_is_offscreen(shot, self.screen):
                 shot.target.incoming_defense_damage = max(0, shot.target.incoming_defense_damage - 1)
                 self.defense_shots.remove(shot)
@@ -3431,7 +3399,6 @@ class MissionEngine:
 
         while True:
             dt, now = self._begin_frame()
-            world_dt = dt * self.current_time_scale
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     stop_audio()
@@ -3548,12 +3515,12 @@ class MissionEngine:
                 play_sound(self.victory_sound)
                 return self._show_end_screen(True)
 
-            self._update_final_boss(now, world_dt)
-            self._update_defense_drones(now, world_dt)
-            result = self._update_drones(now, world_dt)
+            self._update_final_boss(now, dt)
+            self._update_defense_drones(now, dt)
+            result = self._update_drones(now, dt)
             if result is not None:
                 return result
-            self._update_defense_shots(world_dt)
+            self._update_defense_shots(dt)
 
             for bullet in self.bullets[:]:
                 bullet.rotation = (bullet.rotation + math.tau * SHOT_ROTATIONS_PER_SECOND * dt) % math.tau

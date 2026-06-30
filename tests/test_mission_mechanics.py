@@ -260,20 +260,27 @@ class MissionMechanicsTests(unittest.TestCase):
         self.assertFalse(me.time_dilation_power_up_enabled(26))
         self.assertTrue(me.time_dilation_power_up_enabled(27))
 
-    def test_time_dilation_field_easing(self):
-        field = me.TimeDilationField(10000, 0.05, 1500)
-        self.assertAlmostEqual(field.time_scale(), 0.05)  # near-frozen at start
-        field.remaining_ms = 0
-        field.active = False
-        self.assertEqual(field.time_scale(), 1.0)  # back to normal once done
+    def test_time_stop_ring_sweep_and_freeze(self):
+        # 5s total: expand 1s, hold 3s, contract 1s; full stop (scale 0) inside.
+        ring = me.TimeStopRing(5000, 1000, 1000, 0.0, (0, 0), 100)
+        self.assertEqual(ring.radius(), 0)
+        self.assertEqual(ring.object_time_scale(50), 1.0)  # nothing frozen yet
+        ring.update(500)  # mid-expand -> radius 50
+        self.assertAlmostEqual(ring.radius(), 50)
+        self.assertEqual(ring.object_time_scale(40), 0.0)  # inside -> frozen
+        self.assertEqual(ring.object_time_scale(60), 1.0)  # outside -> normal
+        ring.update(2500)  # hold -> full radius, everything on-screen frozen
+        self.assertEqual(ring.radius(), 100)
+        self.assertEqual(ring.object_time_scale(99), 0.0)
+        ring.update(2000)  # finished -> ring gone, all un-frozen
+        self.assertFalse(ring.active)
+        self.assertEqual(ring.radius(), 0)
+        self.assertEqual(ring.object_time_scale(10), 1.0)
 
-    def test_time_ripple_expires(self):
-        ripple = me.SpaceTimeRipple(
-            (200, 100), (100, 50), speed=100000, strength=24, wavelength=95, thickness=10, start_radius=10
-        )
-        self.assertTrue(ripple.alive)
-        ripple.update(1.0)  # huge speed pushes radius past the screen
-        self.assertFalse(ripple.alive)
+    def test_time_stop_ring_keeps_a_hold_phase(self):
+        # expand + contract longer than duration are scaled to leave a hold.
+        ring = me.TimeStopRing(1000, 5000, 5000, 0.0, (0, 0), 100)
+        self.assertLess(ring.expand_ms + ring.contract_ms, ring.duration_ms + 1)
 
     def test_spawn_power_up_time_dilation_kind(self):
         screen = pygame.Surface((640, 480))

@@ -36,19 +36,14 @@ DEFAULT_GAME_SETTINGS = {
         {"start": 30, "end": None, "warning_threshold": 80, "limited_threshold": 70},
     ],
     "time_dilation_duration_ms": 10000,
-    "time_dilation_ripple_ms": 5000,
-    "time_dilation_release_ms": 1500,
-    "time_dilation_min_speed_scale": 0.05,
+    "time_dilation_expand_ms": 1200,
+    "time_dilation_contract_ms": 2500,
+    "time_dilation_min_speed_scale": 0.0,
     "time_dilation_max_charges": 3,
     "time_dilation_start_lesson": 27,
     "time_dilation_unlock_lesson": 26,
     "time_dilation_triple_tap_ms": 600,
-    "time_ripple_speed": 90.0,
-    "time_ripple_strength": 24.0,
-    "time_ripple_wavelength": 95.0,
-    "time_ripple_thickness": 210.0,
-    "time_ripple_start_radius": 55.0,
-    "time_ripple_overlay_alpha": 24,
+    "time_ring_alpha": 90,
 }
 
 
