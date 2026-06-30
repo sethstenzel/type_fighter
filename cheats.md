@@ -36,6 +36,7 @@ logged as a warning at startup. Implementation lives in `src/cheats.py`.
 | 0 | Full reset | Clears credits, score, unlocked levels, achievements, achievement rewards, and **all purchases** (pod upgrades, extra lives, shield/time-stop charges) | On player select (save) |
 | 10 | Unlock all (save) | Marks every level as **unlocked in the save** (persists after relaunch) | On player select (save) |
 | 11 | Unlock all (run) | Every training mission is **selectable in the menu** for this run only (no save change) | In the mission menu |
+| 12 | Mute error sound | Disables the **wrong-key error sound** | During missions |
 
 ## Notes
 
@@ -43,7 +44,7 @@ logged as a warning at startup. Implementation lives in `src/cheats.py`.
   save the moment that player is selected, so their effects persist after you
   quit, even if you relaunch without `--cheats`. Use **8, 9, and especially 0**
   with care on a real profile (0 is a full progress wipe).
-- **Mission cheats** — **2, 3, 4, 5, 6** only take effect while playing a mission
+- **Mission cheats** — **2, 3, 4, 5, 6, 12** only take effect while playing a mission
   and leave the save alone. Cheats 4/5/6 also force the relevant ability to be
   available even if you have not unlocked it yet.
 - **Unlock-all variants** — **10** marks every level unlocked *in the save*

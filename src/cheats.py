@@ -30,6 +30,7 @@ AVAILABLE_CHEATS = {
     "0": "Full reset: credits, score, unlocked levels, and achievements cleared",
     "10": "Mark every level as unlocked in the save (persists)",
     "11": "Unlock every training mission in the menu for this run (no save change)",
+    "12": "Disable the wrong-key error sound",
 }
 
 CHEAT_LIVES = 99

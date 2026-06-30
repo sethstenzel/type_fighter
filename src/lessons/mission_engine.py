@@ -2741,7 +2741,8 @@ class MissionEngine:
 
     def _record_inaccurate_key(self, key, now=None):
         self._record_inaccurate_input()
-        play_sound(self.limited_sound)
+        if not cheats.is_enabled("12"):
+            play_sound(self.limited_sound)
         if len(self.inaccurate_keys) < 4:
             self.inaccurate_keys.append(key)
 
