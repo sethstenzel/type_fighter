@@ -76,7 +76,7 @@ TURRET_FIRE_ANGLE_THRESHOLD = 0.08
 TURRET_FIRE_DELAY_MS = 90
 # Cheat 14 auto-fire: engage drones within this fraction of half the screen
 # height, toggled by tapping Left Ctrl this many times within the window.
-AUTO_FIRE_RANGE_RATIO = 0.7
+AUTO_FIRE_RANGE_RATIO = 0.9
 AUTO_FIRE_TOGGLE_TAPS = 5
 AUTO_FIRE_TOGGLE_WINDOW_MS = 1500
 SHOT_IMAGE_SIZE = 22

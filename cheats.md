@@ -38,7 +38,7 @@ logged as a warning at startup. Implementation lives in `src/cheats.py`.
 | 11 | Unlock all (run) | Every training mission is **selectable in the menu** for this run only (no save change) | In the mission menu |
 | 12 | Mute error sound | Disables the **wrong-key error sound** | During missions |
 | 13 | Mute explosions | Disables the **drone explosion sound** when enemies are destroyed | During missions |
-| 14 | Auto-fire | Auto-fires the turret at drones within **70% of half the screen height** from the pod. Toggle on/off with **Left Ctrl x5** (tapped quickly) | During missions |
+| 14 | Auto-fire | Auto-fires the turret at drones within **90% of half the screen height** from the pod. Toggle on/off with **Left Ctrl x5** (tapped quickly) | During missions |
 | 15 | 10x spawn rate | Increases the drone **spawn rate to 10x** | During missions |
 
 ## Notes
