@@ -2056,25 +2056,47 @@ def _draw_hexagon_badge(screen, center, radius, fill, edge):
     pygame.draw.polygon(screen, edge, points, 2)
 
 
+scaled_badge_image_cache = {}
+
+
+def badge_image(image_name, size):
+    # Load + scale a badge graphic once and cache the scaled surface (the source
+    # PNGs are large, so per-frame smoothscale would be costly). Returns None if
+    # the graphic is missing, so callers can fall back to drawn shapes.
+    cache_key = (image_name, size)
+    if cache_key not in scaled_badge_image_cache:
+        image = load_ui_image(BASE_DIR / "gfx" / "badges" / image_name)
+        if image is not None:
+            image = pygame.transform.smoothscale(image, (size, size))
+        scaled_badge_image_cache[cache_key] = image
+    return scaled_badge_image_cache[cache_key]
+
+
 def draw_lesson_badges(screen, card_rect, lesson_number, player, font):
     # Earned-badge markers on a mission card, laid out right-to-left.
     badges = []
     if lesson_number in set(normalize_lesson_number_list(player.get("perfect_lessons", []))):
-        badges.append(("P", (255, 190, 68), (255, 236, 156), (42, 28, 8)))
+        badges.append(("P", "perfect_badge.png", (255, 190, 68), (255, 236, 156), (42, 28, 8)))
     if lesson_number in set(normalize_lesson_number_list(player.get("high_score_lessons", []))):
-        badges.append(("H", (116, 211, 255), (208, 240, 255), (6, 28, 42)))
+        badges.append(("H", "high_scorer_badge.png", (116, 211, 255), (208, 240, 255), (6, 28, 42)))
     if lesson_number in set(normalize_lesson_number_list(player.get("quick_lessons", []))):
-        badges.append(("D", (88, 214, 141), (200, 245, 214), (6, 40, 22)))
+        badges.append(("D", "quick_defender_badge.png", (88, 214, 141), (200, 245, 214), (6, 40, 22)))
     radius = 15
+    image_size = int(radius * 2.6)
     cx = card_rect.right - 34
-    for letter, fill, edge, text_color in badges:
+    for letter, image_name, fill, edge, text_color in badges:
         center = (cx, card_rect.centery)
-        _draw_hexagon_badge(screen, center, radius, fill, edge)
-        label = font.render(letter, True, text_color)
-        label_rect = label.get_rect(center=center)
-        label_rect.centerx += 1
-        label_rect.centery += 1
-        screen.blit(label, label_rect)
+        image = badge_image(image_name, image_size)
+        if image is not None:
+            screen.blit(image, image.get_rect(center=center))
+        else:
+            # Fall back to a drawn hexagon with the badge letter.
+            _draw_hexagon_badge(screen, center, radius, fill, edge)
+            label = font.render(letter, True, text_color)
+            label_rect = label.get_rect(center=center)
+            label_rect.centerx += 1
+            label_rect.centery += 1
+            screen.blit(label, label_rect)
         cx -= 40
 
 
