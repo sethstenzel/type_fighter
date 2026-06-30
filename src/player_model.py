@@ -189,6 +189,8 @@ def create_player_record(
     sold_shields=0,
     player_id=None,
     mission_settings=None,
+    high_score_lessons=None,
+    quick_lessons=None,
 ):
     pod = dict(DEFAULT_POD if pod is None else pod)
     pod_upgrades = normalize_pod_upgrades(pod.get("upgrades", []))
@@ -217,6 +219,8 @@ def create_player_record(
         "sold_shields": max(0, coerce_int(sold_shields or 0, 0)),
         "credits": max(0, coerce_int(credits or 0, 0)),
         "perfect_lessons": normalize_lesson_number_list(perfect_lessons),
+        "high_score_lessons": normalize_lesson_number_list(high_score_lessons),
+        "quick_lessons": normalize_lesson_number_list(quick_lessons),
         "last_mission_stats": last_mission_stats if isinstance(last_mission_stats, dict) else {},
         "mission_settings": normalize_mission_settings(mission_settings),
         "pod": {
@@ -464,6 +468,32 @@ def mission_stats_are_perfect(stats, lesson_number):
     )
 
 
+def mission_stats_are_high_score(stats, lesson_number):
+    if not isinstance(stats, dict):
+        return False
+    if stats.get("lesson_number") != lesson_number or not stats.get("won"):
+        return False
+    try:
+        score = int(stats.get("score", 0) or 0)
+        goal = int(stats.get("high_score_goal", 0) or 0)
+    except (TypeError, ValueError):
+        return False
+    return goal > 0 and score >= goal
+
+
+def mission_stats_are_quick(stats, lesson_number):
+    if not isinstance(stats, dict):
+        return False
+    if stats.get("lesson_number") != lesson_number or not stats.get("won"):
+        return False
+    try:
+        time_ms = int(stats.get("level_time_ms", 0) or 0)
+        goal_ms = int(stats.get("quick_time_goal_ms", 0) or 0)
+    except (TypeError, ValueError):
+        return False
+    return goal_ms > 0 and 0 < time_ms <= goal_ms
+
+
 def achievement_by_id(achievement_id):
     for achievement in ACHIEVEMENTS:
         if achievement.get("id") == achievement_id:
@@ -511,6 +541,14 @@ def record_latest_mission_achievement_progress(player, lesson_number):
         perfect_lessons = set(normalize_lesson_number_list(player.get("perfect_lessons", [])))
         perfect_lessons.add(lesson_number)
         player["perfect_lessons"] = sorted(perfect_lessons)
+    if mission_stats_are_high_score(stats, lesson_number):
+        high_score_lessons = set(normalize_lesson_number_list(player.get("high_score_lessons", [])))
+        high_score_lessons.add(lesson_number)
+        player["high_score_lessons"] = sorted(high_score_lessons)
+    if mission_stats_are_quick(stats, lesson_number):
+        quick_lessons = set(normalize_lesson_number_list(player.get("quick_lessons", [])))
+        quick_lessons.add(lesson_number)
+        player["quick_lessons"] = sorted(quick_lessons)
 
 
 def achievement_requirements_met(player, lesson_number=None, total_lessons=36):
@@ -532,6 +570,13 @@ def achievement_requirements_met(player, lesson_number=None, total_lessons=36):
         met.append("near_perfection")
     if set(range(1, total_lessons + 1)).issubset(perfect_lessons):
         met.append("totally_perfect")
+    all_lessons = set(range(1, total_lessons + 1))
+    high_score_lessons = set(normalize_lesson_number_list(player.get("high_score_lessons", [])))
+    if all_lessons.issubset(high_score_lessons):
+        met.append("high_scorer")
+    quick_lessons = set(normalize_lesson_number_list(player.get("quick_lessons", [])))
+    if all_lessons.issubset(quick_lessons):
+        met.append("quickest_defender")
     if player_lives(player) >= player_limits.MAX_PLAYER_LIVES:
         met.append("living_forever")
     upgrade_catalog_ids = {upgrade["id"] for upgrade in UPGRADE_CATALOG}

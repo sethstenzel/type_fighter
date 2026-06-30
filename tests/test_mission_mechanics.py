@@ -217,6 +217,31 @@ class MissionMechanicsTests(unittest.TestCase):
         self.assertEqual(accuracy_thresholds_for_lesson(-5), (100, 100))
         self.assertEqual(accuracy_thresholds_for_lesson(999), (80, 70))  # last open-ended band
 
+    # --- Issue #15: scoring helpers ---
+    def test_regular_drone_clear_score(self):
+        self.assertEqual(me.regular_drone_clear_score(1), 100)   # yellow
+        self.assertEqual(me.regular_drone_clear_score(2), 300)   # orange
+        self.assertEqual(me.regular_drone_clear_score(3), 700)   # red ("7 drones worth")
+
+    def test_mega_kill_bonus(self):
+        self.assertEqual(me.mega_kill_bonus(1), 0)    # yellow
+        self.assertEqual(me.mega_kill_bonus(2), 50)   # orange
+        self.assertEqual(me.mega_kill_bonus(3), 100)  # red
+
+    def test_high_score_goal_formula(self):
+        # drone*100 + powerups*100 + 1000 + boss + semis*200 + 2000
+        self.assertEqual(me.high_score_goal(30, 4, 0, 0), 30 * 100 + 400 + 1000 + 0 + 0 + 2000)
+        self.assertEqual(me.high_score_goal(51, 4, 1000, 5), 5100 + 400 + 1000 + 1000 + 1000 + 2000)
+
+    # --- Issue #16: timer helpers ---
+    def test_format_mission_time(self):
+        self.assertEqual(me.format_mission_time(0), "0:00")
+        self.assertEqual(me.format_mission_time(9000), "0:09")
+        self.assertEqual(me.format_mission_time(75000), "1:15")
+
+    def test_quick_defender_goal_default(self):
+        self.assertEqual(me.quick_defender_goal_ms(1), me.DEFAULT_QUICK_DEFENDER_MS)
+
     def test_calculate_credits_earned_bonuses(self):
         engine = me.MissionEngine.__new__(me.MissionEngine)
         engine.destroyed = 50

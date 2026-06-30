@@ -236,6 +236,24 @@ DEFAULT_ACHIEVEMENTS = [
         "score": 1000,
         "sort_order": 120,
     },
+    {
+        "id": "high_scorer",
+        "name": "High Scorer",
+        "text": "Earn the High Scorer badge on every main lesson by beating each level's score goal.",
+        "image": "high_scorer_achievement.png",
+        "reward_credits": 2000,
+        "score": 3000,
+        "sort_order": 130,
+    },
+    {
+        "id": "quickest_defender",
+        "name": "Quickest Defender",
+        "text": "Earn the Quick Defender badge on every main lesson by clearing each level in time.",
+        "image": "quickest_defender_achievement.png",
+        "reward_credits": 2000,
+        "score": 3000,
+        "sort_order": 140,
+    },
 ]
 
 

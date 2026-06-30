@@ -37,6 +37,15 @@ class NormalizePlayersTests(unittest.TestCase):
         players = game.normalize_players(["x", 5, {}, {"name": "   "}, {"name": "Real"}])
         self.assertEqual([p["name"] for p in players], ["Real"])
 
+    def test_legacy_save_without_new_fields_gets_defaults(self):
+        # An old save predating the scoring/timer features must load gracefully.
+        legacy = {"name": "Legacy", "lives": 5, "completed_lessons": [1, 2], "credits": 100}
+        player = game.normalize_players([legacy])[0]
+        self.assertEqual(player["high_score_lessons"], [])
+        self.assertEqual(player["quick_lessons"], [])
+        self.assertEqual(player["perfect_lessons"], [])
+        self.assertEqual(player["lives"], 5)
+
 
 class SaveRoundTripTests(unittest.TestCase):
     def setUp(self):

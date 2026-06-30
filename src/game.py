@@ -461,6 +461,8 @@ def normalize_players(data):
                 sold_shields=item.get("sold_shields", 0),
                 credits=item.get("credits", 0),
                 perfect_lessons=item.get("perfect_lessons", []),
+                high_score_lessons=item.get("high_score_lessons", []),
+                quick_lessons=item.get("quick_lessons", []),
                 last_mission_stats=item.get("last_mission_stats", {}),
                 mission_settings=item.get("mission_settings", {}),
                 pod=item.get("pod", {}),
@@ -503,6 +505,8 @@ def create_player_record(
     sold_shields=0,
     credits=0,
     perfect_lessons=None,
+    high_score_lessons=None,
+    quick_lessons=None,
     last_mission_stats=None,
     mission_settings=None,
     pod=None,
@@ -546,6 +550,8 @@ def create_player_record(
         "sold_shields": max(0, coerce_int(sold_shields, 0)),
         "credits": max(0, credits),
         "perfect_lessons": normalize_lesson_number_list(perfect_lessons),
+        "high_score_lessons": normalize_lesson_number_list(high_score_lessons),
+        "quick_lessons": normalize_lesson_number_list(quick_lessons),
         "last_mission_stats": last_mission_stats if isinstance(last_mission_stats, dict) else {},
         "mission_settings": normalize_mission_settings(mission_settings),
         "updated_at": updated_at if isinstance(updated_at, str) and updated_at else player_storage_sqlite.utc_now(),
@@ -1883,12 +1889,61 @@ def attempt_upgrade_sale(screen, clock, players, player, upgrade):
     return None
 
 
+def _draw_rhombus_badge(screen, center, radius, fill, edge):
+    points = [
+        (center[0], center[1] - radius),
+        (center[0] + radius, center[1]),
+        (center[0], center[1] + radius),
+        (center[0] - radius, center[1]),
+    ]
+    pygame.draw.polygon(screen, fill, points)
+    pygame.draw.polygon(screen, edge, points, 2)
+
+
+def _draw_hexagon_badge(screen, center, radius, fill, edge):
+    points = [
+        (
+            center[0] + radius * math.cos(math.pi / 6 + index * math.pi / 3),
+            center[1] + radius * math.sin(math.pi / 6 + index * math.pi / 3),
+        )
+        for index in range(6)
+    ]
+    pygame.draw.polygon(screen, fill, points)
+    pygame.draw.polygon(screen, edge, points, 2)
+
+
+def draw_lesson_badges(screen, card_rect, lesson_number, player, font):
+    # Earned-badge markers on a mission card, laid out right-to-left.
+    badges = []
+    if lesson_number in set(normalize_lesson_number_list(player.get("perfect_lessons", []))):
+        badges.append(("P", "rhombus", (255, 190, 68), (255, 236, 156), (42, 28, 8)))
+    if lesson_number in set(normalize_lesson_number_list(player.get("high_score_lessons", []))):
+        badges.append(("H", "rhombus", (116, 211, 255), (208, 240, 255), (6, 28, 42)))
+    if lesson_number in set(normalize_lesson_number_list(player.get("quick_lessons", []))):
+        badges.append(("D", "hexagon", (88, 214, 141), (200, 245, 214), (6, 40, 22)))
+    radius = 15
+    cx = card_rect.right - 34
+    for letter, shape, fill, edge, text_color in badges:
+        center = (cx, card_rect.centery)
+        if shape == "rhombus":
+            _draw_rhombus_badge(screen, center, radius, fill, edge)
+        else:
+            _draw_hexagon_badge(screen, center, radius, fill, edge)
+        label = font.render(letter, True, text_color)
+        label_rect = label.get_rect(center=center)
+        label_rect.centerx += 1
+        label_rect.centery += 1
+        screen.blit(label, label_rect)
+        cx -= 40
+
+
 def menu_loop(screen, clock, players, player):
     ensure_menu_music()
     title_font = pygame.font.SysFont("arial", 54, bold=True)
     item_font = pygame.font.SysFont("arial", 30, bold=True)
     body_font = pygame.font.SysFont("arial", 22)
     small_font = pygame.font.SysFont("arial", 18)
+    marker_font = pygame.font.SysFont("arial", 18, bold=True)
 
     selected = 0
     stars = create_star_field()
@@ -2131,23 +2186,7 @@ def menu_loop(screen, clock, players, player):
             summary = "Locked: complete the previous lesson first." if is_locked else lesson["summary"]
             draw_text(screen, lesson["title"], item_font, title_color, (x, y - 4))
             draw_text(screen, summary, body_font, summary_color, (x, y + 36))
-            if lesson["number"] in set(normalize_lesson_number_list(player.get("perfect_lessons", []))):
-                marker_center = (card_rect.right - 34, card_rect.centery)
-                marker_radius = 15
-                marker_points = [
-                    (marker_center[0], marker_center[1] - marker_radius),
-                    (marker_center[0] + marker_radius, marker_center[1]),
-                    (marker_center[0], marker_center[1] + marker_radius),
-                    (marker_center[0] - marker_radius, marker_center[1]),
-                ]
-                pygame.draw.polygon(screen, (255, 190, 68), marker_points)
-                pygame.draw.polygon(screen, (255, 236, 156), marker_points, 2)
-                marker_font = pygame.font.SysFont("arial", 18, bold=True)
-                marker_label = marker_font.render("P", True, (42, 28, 8))
-                label_rect = marker_label.get_rect(center=marker_center)
-                label_rect.centerx += 1
-                label_rect.centery += 1
-                screen.blit(marker_label, label_rect)
+            draw_lesson_badges(screen, card_rect, lesson["number"], player, marker_font)
 
         scrollbar_rect = pygame.Rect(content_left + content_width - 12, list_top - 22, 8, list_height)
         scrollbar_thumb = draw_scrollbar(screen, scrollbar_rect, len(LESSONS), visible_rows, first_visible)
