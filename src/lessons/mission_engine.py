@@ -155,7 +155,7 @@ ACCURACY_SYSTEM_START_LESSON = 1
 TIME_STOP_UNLOCK_LESSON = 26      # completing this lesson unlocks the ability
 TIME_STOP_START_LESSON = 27       # power-ups only spawn from this lesson on
 TIME_STOP_MAX_CHARGES = 3
-TIME_STOP_DURATION_MS = 10000     # total time-stop duration
+TIME_STOP_DURATION_MS = 7000      # total time-stop duration
 TIME_STOP_EXPAND_MS = 450         # ring sweep-out (freezes nearest objects first)
 TIME_STOP_CONTRACT_MS = 1500      # slow recede at the end (un-freezes farthest first)
 TIME_STOP_MIN_SPEED_SCALE = 0.0   # frozen objects' speed while inside the ring (0 = full stop)
