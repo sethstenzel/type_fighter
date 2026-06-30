@@ -2952,9 +2952,10 @@ class MissionEngine:
         # The background star field stops drifting during a time stop.
         if self.time_stop is None:
             update_star_field(self.stars, dt)
-        if self.mission_start_ticks is not None:
+        # The level timer is fully frozen while a time stop is active.
+        if self.mission_start_ticks is not None and self.time_stop is None:
             self.level_time_ms = min(
-                MAX_LEVEL_TIME_MS, self.level_time_ms + dt * 1000 * self.current_time_scale
+                MAX_LEVEL_TIME_MS, self.level_time_ms + dt * 1000
             )
         if self.player_mega_shot_available and self.mega_charge_blocks < MEGA_CHARGE_MAX_BLOCKS:
             if self.next_mega_recharge_time and now >= self.next_mega_recharge_time:
@@ -3025,6 +3026,14 @@ class MissionEngine:
         return rects
 
     def _spawn_entities(self, now):
+        if self.time_stop is not None:
+            # No new spawns (drones, mini-bosses, or power-ups) while time is
+            # stopped. Hold the spawn timers ahead of `now` so nothing bursts out
+            # the instant the stop ends.
+            self.next_spawn_time = now + self.current_spawn_interval_ms
+            if self.next_power_up_spawn_time <= now:
+                self.next_power_up_spawn_time = now + 1
+            return
         has_no_standard_play_drones = (
             not self.final_bosses
             and not self.drones
@@ -3052,11 +3061,6 @@ class MissionEngine:
             )
             if drone.is_mega:
                 play_sound(self.boss_sound)
-                # A purple drone that spawns during a time stop must not spawn
-                # more drones until the stop has ended.
-                if self.time_stop is not None:
-                    remaining = max(0, self.time_stop.duration_ms - self.time_stop.elapsed_ms)
-                    drone.next_shot_time = now + int(remaining) + MEGA_ATTACK_INTERVAL_MS
             self.next_spawn_time = now + self.current_spawn_interval_ms
 
         if self.power_up is not None and now >= self.power_up.expires_at:
