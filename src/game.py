@@ -1817,12 +1817,12 @@ def sell_upgrade_modal(screen, clock, upgrade, player):
                     new_quantity = min(max_quantity, quantity + 1)
                     if new_quantity != quantity:
                         quantity = new_quantity
-                        play_menu_beep()
+                        play_button_press()
                 if event.key in (pygame.K_DOWN, pygame.K_s):
                     new_quantity = max(1, quantity - 1)
                     if new_quantity != quantity:
                         quantity = new_quantity
-                        play_menu_beep()
+                        play_button_press()
                 if event.key in (pygame.K_RETURN, pygame.K_SPACE):
                     play_button_press()
                     return quantity
@@ -1831,12 +1831,12 @@ def sell_upgrade_modal(screen, clock, upgrade, player):
                     new_quantity = min(max_quantity, quantity + 1)
                     if new_quantity != quantity:
                         quantity = new_quantity
-                        play_menu_beep()
+                        play_button_press()
                 elif down_rect.collidepoint(event.pos):
                     new_quantity = max(1, quantity - 1)
                     if new_quantity != quantity:
                         quantity = new_quantity
-                        play_menu_beep()
+                        play_button_press()
                 elif sell_rect.collidepoint(event.pos):
                     play_button_press()
                     return quantity
