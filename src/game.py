@@ -735,7 +735,6 @@ def player_select_loop(screen, clock):
         if not players:
             return
         selected = (selected + step) % len(players)
-        play_button_press()
         delete_confirm = False
         suppress_hover_until_redraw = True
 
@@ -804,7 +803,6 @@ def player_select_loop(screen, clock):
                 new_selected = min(len(players) - 1, first_visible + max(0, visible_rows - 1))
                 if new_selected != selected:
                     selected = new_selected
-                    play_button_press()
                 delete_confirm = False
             elif event.type == pygame.MOUSEMOTION and players:
                 if suppress_hover_until_redraw:
@@ -813,14 +811,12 @@ def player_select_loop(screen, clock):
                     if rect.collidepoint(event.pos):
                         if index != selected:
                             selected = index
-                            play_button_press()
                             delete_confirm = False
                         break
             if event.type == pygame.MOUSEWHEEL and players:
                 step, last_wheel_scroll_time = should_apply_menu_wheel(event, last_wheel_scroll_time)
                 if step:
                     selected = (selected + step) % len(players)
-                    play_button_press()
                     delete_confirm = False
 
         # Hold Up/Down (or W/S) to keep moving through the list (~3x/second).
@@ -2132,7 +2128,6 @@ def menu_loop(screen, clock, players, player):
         if new_selected != selected:
             selected = new_selected
             first_visible = keep_index_visible(selected, first_visible, len(LESSONS), visible_rows)
-            play_button_press()
         suppress_hover_until_redraw = True
 
     # Login achievement check: award (and queue modals for) any achievements the
@@ -2271,7 +2266,6 @@ def menu_loop(screen, clock, players, player):
                 new_selected = min(len(LESSONS) - 1, first_visible + max(0, visible_rows - 1))
                 if new_selected != selected:
                     selected = new_selected
-                    play_button_press()
             elif event.type == pygame.MOUSEMOTION:
                 if suppress_hover_until_redraw:
                     continue
@@ -2279,7 +2273,6 @@ def menu_loop(screen, clock, players, player):
                     if rect.collidepoint(event.pos):
                         if index != selected:
                             selected = index
-                            play_button_press()
                         break
             if event.type == pygame.MOUSEWHEEL:
                 step, last_wheel_scroll_time = should_apply_menu_wheel(event, last_wheel_scroll_time)
@@ -2288,7 +2281,6 @@ def menu_loop(screen, clock, players, player):
                     if new_selected != selected:
                         selected = new_selected
                         first_visible = keep_index_visible(selected, first_visible, len(LESSONS), visible_rows)
-                        play_button_press()
 
         # Hold Up/Down (or W/S) to keep moving through the mission list (~3x/second).
         held = pygame.key.get_pressed()
