@@ -87,8 +87,8 @@ MUTED_TEXT = (138, 150, 178)
 ACCENT = (72, 209, 204)
 LOCKED_SELECTED = (245, 203, 92)
 MENU_WHEEL_SCROLL_COOLDOWN_MS = 90
-NAV_REPEAT_DELAY_MS = 200       # hold-to-repeat: delay before the first auto-repeat
-NAV_REPEAT_INTERVAL_MS = 200    # hold-to-repeat: ~5 moves per second while held
+NAV_REPEAT_DELAY_MS = 100       # hold-to-repeat: delay before the first auto-repeat
+NAV_REPEAT_INTERVAL_MS = 100    # hold-to-repeat: ~10 moves per second while held
 STARTING_LIVES = 3
 PLAYER_SHIELD_MAX_CHARGES = 3
 def running_as_frozen_app():
