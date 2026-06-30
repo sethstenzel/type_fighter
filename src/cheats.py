@@ -32,6 +32,8 @@ AVAILABLE_CHEATS = {
     "11": "Unlock every training mission in the menu for this run (no save change)",
     "12": "Disable the wrong-key error sound",
     "13": "Disable the drone explosion sound when they are destroyed",
+    "14": "Auto-fire the turret at nearby drones (toggle with Left Ctrl x5)",
+    "15": "Increase the drone spawn rate to 10x",
 }
 
 CHEAT_LIVES = 99

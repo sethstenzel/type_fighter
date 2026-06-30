@@ -74,6 +74,11 @@ DRONE_PIXELS_PER_ROTATION = 60
 TURRET_TURN_SPEED = 25
 TURRET_FIRE_ANGLE_THRESHOLD = 0.08
 TURRET_FIRE_DELAY_MS = 90
+# Cheat 14 auto-fire: engage drones within this fraction of half the screen
+# height, toggled by tapping Left Ctrl this many times within the window.
+AUTO_FIRE_RANGE_RATIO = 0.7
+AUTO_FIRE_TOGGLE_TAPS = 5
+AUTO_FIRE_TOGGLE_WINDOW_MS = 1500
 SHOT_IMAGE_SIZE = 22
 SHOT_TRAIL_INTERVAL_MS = 12
 SHOT_ROTATIONS_PER_SECOND = 2
@@ -1114,6 +1119,18 @@ def defense_drone_remaining_shot_capacity(drone):
 
 def nearest_drone_for_key(drones, key, center):
     matches = [drone for drone in drones if drone.letter == key and can_target_drone(drone)]
+    if not matches:
+        return None
+    return min(matches, key=lambda drone: drone.pos.distance_squared_to(center))
+
+
+def nearest_targetable_drone_in_range(drones, center, max_range):
+    max_sq = max_range * max_range
+    matches = [
+        drone
+        for drone in drones
+        if can_target_drone(drone) and drone.pos.distance_squared_to(center) <= max_sq
+    ]
     if not matches:
         return None
     return min(matches, key=lambda drone: drone.pos.distance_squared_to(center))
@@ -2441,6 +2458,10 @@ class MissionEngine:
         self._ring_overlay = None
         self._time_stop_ending_played = False
         self.space_tap_times = []
+        # Cheat 14 auto-fire: on by default while the cheat is active; toggled
+        # by tapping Left Ctrl AUTO_FIRE_TOGGLE_TAPS times quickly.
+        self.auto_fire_enabled = True
+        self.ctrl_tap_times = []
         self.credits_awarded = False
         self.lives = max(
             STARTING_LIVES,
@@ -2481,6 +2502,8 @@ class MissionEngine:
 
     def _spawn_interval(self):
         multiplier = max(1.0, float(self.mission_settings.get("spawn_rate_multiplier", 1.0)))
+        if cheats.is_enabled("15"):
+            multiplier = max(multiplier, 10.0)  # cheat: 10x spawn rate
         return max(80, int(random_spawn_interval(self.lesson_number) / multiplier))
 
     def _create_defense_drones(self):
@@ -2942,6 +2965,26 @@ class MissionEngine:
         if len(self.space_tap_times) >= 2:
             return self._activate_time_stop(now)
         return False
+
+    def _register_ctrl_tap(self, now):
+        # Returns True once Left Ctrl has been tapped enough times in the window.
+        self.ctrl_tap_times = [t for t in self.ctrl_tap_times if now - t <= AUTO_FIRE_TOGGLE_WINDOW_MS]
+        self.ctrl_tap_times.append(now)
+        if len(self.ctrl_tap_times) >= AUTO_FIRE_TOGGLE_TAPS:
+            self.ctrl_tap_times = []
+            return True
+        return False
+
+    def _auto_fire_turret(self, now):
+        # Cheat 14: queue a shot at the nearest in-range drone. One at a time so
+        # the turret works the queue exactly as it does for typed shots.
+        if self.pending_shots:
+            return
+        max_range = AUTO_FIRE_RANGE_RATIO * self.screen.get_size()[1] / 2
+        target = nearest_targetable_drone_in_range(self.drones, self.player_center, max_range)
+        if target is not None:
+            target.incoming_damage += 1
+            self.pending_shots.append(PendingShot(target=target, damage=1, created_at=now))
 
     def _begin_frame(self):
         dt = self.clock.tick(60) / 1000
@@ -3525,6 +3568,11 @@ class MissionEngine:
                             return self._finish("restart")
                         return self._finish("menu")
                     pressed_key = event_to_lesson_key(event, self.lesson_number)
+                    if cheats.is_enabled("14") and event.key == pygame.K_LCTRL:
+                        # Tap Left Ctrl 5x quickly to toggle auto-fire on/off.
+                        if self._register_ctrl_tap(now):
+                            self.auto_fire_enabled = not self.auto_fire_enabled
+                        continue
                     if event.key == pygame.K_SPACE:
                         if self.player_mega_shot_available:
                             self.space_held = True
@@ -3588,6 +3636,8 @@ class MissionEngine:
                     if event.key == pygame.K_SPACE:
                         self.space_held = False
 
+            if cheats.is_enabled("14") and self.auto_fire_enabled:
+                self._auto_fire_turret(now)
             self._process_pending_shots(now, dt)
 
             self._spawn_entities(now)

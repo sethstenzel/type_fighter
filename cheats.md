@@ -38,6 +38,8 @@ logged as a warning at startup. Implementation lives in `src/cheats.py`.
 | 11 | Unlock all (run) | Every training mission is **selectable in the menu** for this run only (no save change) | In the mission menu |
 | 12 | Mute error sound | Disables the **wrong-key error sound** | During missions |
 | 13 | Mute explosions | Disables the **drone explosion sound** when enemies are destroyed | During missions |
+| 14 | Auto-fire | Auto-fires the turret at drones within **70% of half the screen height** from the pod. Toggle on/off with **Left Ctrl x5** (tapped quickly) | During missions |
+| 15 | 10x spawn rate | Increases the drone **spawn rate to 10x** | During missions |
 
 ## Notes
 
@@ -45,9 +47,12 @@ logged as a warning at startup. Implementation lives in `src/cheats.py`.
   save the moment that player is selected, so their effects persist after you
   quit, even if you relaunch without `--cheats`. Use **8, 9, and especially 0**
   with care on a real profile (0 is a full progress wipe).
-- **Mission cheats** — **2, 3, 4, 5, 6, 12, 13** only take effect while playing a mission
-  and leave the save alone. Cheats 4/5/6 also force the relevant ability to be
-  available even if you have not unlocked it yet.
+- **Mission cheats** — **2, 3, 4, 5, 6, 12, 13, 14, 15** only take effect while
+  playing a mission and leave the save alone. Cheats 4/5/6 also force the
+  relevant ability to be available even if you have not unlocked it yet.
+- **Auto-fire (14)** starts enabled when the cheat is on; tap **Left Ctrl five
+  times quickly** to toggle it off or back on mid-mission. It only targets
+  regular drones/mini-bosses within range, not the final boss.
 - **Unlock-all variants** — **10** marks every level unlocked *in the save*
   (persists); **11** unlocks every mission in the menu for the current run only
   (no save change).
