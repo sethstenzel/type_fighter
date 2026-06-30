@@ -53,7 +53,9 @@ from player_model import (
     has_upgrade,
     mark_lesson_complete,
     max_sell_quantity,
+    mission_stats_are_high_score,
     mission_stats_are_perfect,
+    mission_stats_are_quick,
     normalize_achievement_awards,
     normalize_lesson_number_list,
     normalize_mission_settings,
@@ -930,6 +932,27 @@ def message_modal(screen, clock, title, message):
         clock.tick(60)
 
 
+def wrap_plain_text(text, font, max_width):
+    # Word-wrap to max_width, preserving explicit newlines as paragraph breaks.
+    lines = []
+    for paragraph in str(text).split("\n"):
+        if not paragraph.strip():
+            lines.append("")
+            continue
+        current = ""
+        for word in paragraph.split():
+            candidate = f"{current} {word}".strip()
+            if font.size(candidate)[0] <= max_width:
+                current = candidate
+            else:
+                if current:
+                    lines.append(current)
+                current = word
+        if current:
+            lines.append(current)
+    return lines
+
+
 def draw_centered_wrapped_text(surface, text, font, color, rect, line_spacing=6):
     line_height = font.get_linesize() + line_spacing
     lines = wrap_plain_text(text, font, rect.width)
@@ -1179,10 +1202,57 @@ def collect_lesson_unlock_modals(lesson_number):
     return queued
 
 
+def collect_badge_unlock_modals(player, lesson_number):
+    # Per-level medal unlock modals. Must run BEFORE collect_new_achievement_modals,
+    # which marks the lessons (so "newly earned" detection works).
+    queue = []
+    stats = player.get("last_mission_stats", {})
+    high_score_lessons = set(normalize_lesson_number_list(player.get("high_score_lessons", [])))
+    if lesson_number not in high_score_lessons and mission_stats_are_high_score(stats, lesson_number):
+        try:
+            score = int(stats.get("score", 0) or 0)
+            goal = int(stats.get("high_score_goal", 0) or 0)
+        except (TypeError, ValueError):
+            score, goal = 0, 0
+        queue.append(
+            {
+                "kind": "achievement",
+                "title": "High Scorer!",
+                "text": (
+                    "You earned the High Scorer medal for this level!\n\n"
+                    f"Score needed: {goal}\n"
+                    f"Your score: {score}"
+                ),
+                "image_path": BASE_DIR / "gfx" / "misc" / "high_scorer_medal.png",
+            }
+        )
+    quick_lessons = set(normalize_lesson_number_list(player.get("quick_lessons", [])))
+    if lesson_number not in quick_lessons and mission_stats_are_quick(stats, lesson_number):
+        try:
+            time_ms = int(stats.get("level_time_ms", 0) or 0)
+            goal_ms = int(stats.get("quick_time_goal_ms", 0) or 0)
+        except (TypeError, ValueError):
+            time_ms, goal_ms = 0, 0
+        queue.append(
+            {
+                "kind": "achievement",
+                "title": "Quick Defender!",
+                "text": (
+                    "You earned the Quick Defender medal for this level!\n\n"
+                    f"Time to beat: {goal_ms / 1000:.2f}s\n"
+                    f"Your time: {time_ms / 1000:.2f}s"
+                ),
+                "image_path": BASE_DIR / "gfx" / "misc" / "quick_defender_medal.png",
+            }
+        )
+    return queue
+
+
 def collect_mission_reward_modals(player, lesson_number, include_unlocks=True):
     queue = []
     if include_unlocks:
         queue.extend(collect_lesson_unlock_modals(lesson_number))
+    queue.extend(collect_badge_unlock_modals(player, lesson_number))
     queue.extend(collect_new_achievement_modals(player, lesson_number))
     return queue
 
