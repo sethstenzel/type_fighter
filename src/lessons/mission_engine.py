@@ -3074,6 +3074,7 @@ class MissionEngine:
             and self.final_bosses_defeated == 0
             and self.destroyed >= self.drone_target
             and active_mini_boss_count(self.drones) == 0
+            and self.time_stop is None  # wait for an active time stop to finish first
         ):
             self._start_final_boss_encounter(now)
 
