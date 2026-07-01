@@ -42,6 +42,7 @@ from game_config import (
 )
 import cheats
 import fonts
+import play_tests
 import user_settings
 from player_model import (
     DEFAULT_POD,
@@ -2466,6 +2467,16 @@ def main():
     if hasattr(pygame.display, "set_minimum_size"):
         pygame.display.set_minimum_size(*MIN_SCREEN_SIZE)
     clock = pygame.time.Clock()
+
+    if play_tests.requested(sys.argv):
+        # Developer benchmark: headlessly autoplay every level and report
+        # average base scores, then exit without entering the menu.
+        try:
+            play_tests.run(screen, clock, BASE_DIR)
+        finally:
+            logger.info("Type Fighter play-tests complete; shutting down")
+            pygame.quit()
+        return
 
     try:
         while True:
