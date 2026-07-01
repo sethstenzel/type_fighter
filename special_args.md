@@ -121,28 +121,29 @@ Shift+selecting any other mission does nothing special.
 
 # Play Tests
 
-A headless benchmark that autoplays **every training mission 30 times** and
-reports the **average base score** per level, to calibrate scoring/high-score
-goals. Implementation lives in `src/play_tests.py`, with the headless run in
-`src/lessons/mission_engine.py` (`simulate_mission` / `simulate_autoplay`).
+A headless benchmark that autoplays **every training mission** (30 times by
+default) and reports the **average base score** and **completion time** per
+level, to calibrate scoring/high-score goals. Implementation lives in
+`src/play_tests.py`, with the headless run in `src/lessons/mission_engine.py`
+(`simulate_mission` / `simulate_autoplay`).
 
 ## How to enable
 
-`--play_tests` is an **on/off flag**:
+`--play_tests` turns the benchmark on; an optional **number sets the runs per
+level** (default 30):
 
 ```bash
-# space form
-uv run python src/game.py --play_tests 1
-
-# equals form
-uv run python src/game.py --play_tests=1
-
-# a bare flag also turns it on
+# bare flag: 30 runs per level
 uv run python src/game.py --play_tests
+
+# run each level 25 times (space or equals form)
+uv run python src/game.py --play_tests 25
+uv run python src/game.py --play_tests=25
 ```
 
-Any value other than `0`/`false`/`no`/`off` turns it on. When on, the game skips
-the menu entirely: it runs the benchmark and then exits.
+`--play_tests 0` (or `false`/`no`/`off`) turns it off. A positive integer is
+used as the run count; any other truthy value runs the default 30. When on, the
+game skips the menu entirely: it runs the benchmark and then exits.
 
 ## What it does
 
@@ -159,10 +160,13 @@ the menu entirely: it runs the benchmark and then exits.
 
 ## Output
 
-- A per-level table is printed to the console (avg / min / max / stdev of base
-  score, and how many of the 30 runs were won).
+- A per-level table is printed to the console: avg / min / max / stdev of base
+  score, avg / max **completion time** (simulated in-game seconds to clear the
+  level), and how many runs were won.
 - Machine-readable results are written to `play_test_results/` as timestamped
-  `play_tests_<stamp>.json` and `play_tests_<stamp>.csv`.
+  `play_tests_<stamp>.json` and `play_tests_<stamp>.csv`, including per-level
+  `avg_time_ms` / `min_time_ms` / `max_time_ms` and the raw per-run scores and
+  times.
 
 ## Notes
 

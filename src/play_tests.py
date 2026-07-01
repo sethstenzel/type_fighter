@@ -6,10 +6,15 @@ virtual clock (no rendering, audio, or real-time wait) and reports the average
 without power-up points (the bot never collects power-ups, so those never
 count). This gives a stable per-level baseline for tuning high-score goals.
 
-Enable with (on/off flag):
+Enable with a bare flag (default 30 runs per level) or pass a run count:
 
-    uv run python src/game.py --play_tests 1
-    uv run python src/game.py --play_tests=1
+    uv run python src/game.py --play_tests        # 30 runs per level
+    uv run python src/game.py --play_tests 25      # 25 runs per level
+    uv run python src/game.py --play_tests=25      # 25 runs per level
+
+``--play_tests 0`` (or off/false/no) turns it off. Each run also records the
+in-game time taken to complete the level; the table and results files report
+average/min/max completion time alongside the base score.
 
 Results are printed as a table and written to ``play_test_results/`` as JSON and
 CSV. Implementation of the headless run lives in ``lessons/mission_engine.py``
@@ -37,22 +42,45 @@ RUNS_PER_LEVEL = 30
 _FALSY = {"", "0", "false", "no", "off"}
 
 
-def requested(argv):
-    """Return True if --play_tests is present with a truthy value.
+def _flag_value(argv):
+    """Raw string passed to --play_tests, or None if the flag is absent.
 
-    Accepts ``--play_tests 1``, ``--play_tests=1`` and a bare ``--play_tests``
-    (treated as on). ``--play_tests 0`` (or false/no/off) turns it off.
+    A bare ``--play_tests`` (no value) yields the sentinel ``"on"`` so it reads
+    as enabled with the default run count rather than "1 run".
     """
     for index, arg in enumerate(argv):
         if arg.startswith("--play_tests="):
-            value = arg.split("=", 1)[1]
-        elif arg == "--play_tests":
+            return arg.split("=", 1)[1]
+        if arg == "--play_tests":
             nxt = argv[index + 1] if index + 1 < len(argv) else None
-            value = nxt if (nxt is not None and not nxt.startswith("-")) else "1"
-        else:
-            continue
-        return value.strip().lower() not in _FALSY
-    return False
+            return nxt if (nxt is not None and not nxt.startswith("-")) else "on"
+    return None
+
+
+def requested(argv):
+    """Return True if --play_tests is present and not turned off.
+
+    Accepts ``--play_tests``, ``--play_tests 1``, ``--play_tests=25`` and so on.
+    ``--play_tests 0`` (or false/no/off) turns it off.
+    """
+    value = _flag_value(argv)
+    return value is not None and value.strip().lower() not in _FALSY
+
+
+def resolve_runs(argv, default=RUNS_PER_LEVEL):
+    """Runs-per-level from ``--play_tests <n>`` (e.g. ``--play_tests 25`` -> 25).
+
+    Falls back to ``default`` for a bare flag or any non positive-integer value.
+    """
+    value = _flag_value(argv)
+    if value is not None:
+        try:
+            runs = int(value.strip())
+        except ValueError:
+            runs = 0
+        if runs > 0:
+            return runs
+    return default
 
 
 def _make_test_player():
@@ -61,7 +89,10 @@ def _make_test_player():
     return player_model.create_player_record("__play_tests__")
 
 
-def _summarize(lesson_number, base_scores, won, timed_out, runs):
+def _summarize(lesson_number, base_scores, times_ms, won, timed_out, runs):
+    # times_ms is the in-game level timer per run (simulated time to complete
+    # the level; it freezes during time-stop and the boss intro, matching what
+    # the player sees on the end screen).
     return {
         "lesson_number": lesson_number,
         "runs": runs,
@@ -71,19 +102,24 @@ def _summarize(lesson_number, base_scores, won, timed_out, runs):
         "min_base_score": min(base_scores) if base_scores else 0,
         "max_base_score": max(base_scores) if base_scores else 0,
         "stdev_base_score": round(statistics.pstdev(base_scores), 1) if len(base_scores) > 1 else 0.0,
+        "avg_time_ms": round(statistics.fmean(times_ms)) if times_ms else 0,
+        "min_time_ms": min(times_ms) if times_ms else 0,
+        "max_time_ms": max(times_ms) if times_ms else 0,
         "base_scores": base_scores,
+        "times_ms": times_ms,
     }
 
 
 def _log_progress(summary):
     print(
-        "  lesson %2d: avg base %8.1f  (min %d / max %d, stdev %.1f)  won %d/%d%s"
+        "  lesson %2d: avg base %8.1f  (min %d / max %d, stdev %.1f)  avg time %5.1fs  won %d/%d%s"
         % (
             summary["lesson_number"],
             summary["avg_base_score"],
             summary["min_base_score"],
             summary["max_base_score"],
             summary["stdev_base_score"],
+            summary["avg_time_ms"] / 1000.0,
             summary["won"],
             summary["runs"],
             "  [!%d timed out]" % summary["timed_out"] if summary["timed_out"] else "",
@@ -92,17 +128,19 @@ def _log_progress(summary):
 
 
 def _print_table(results):
-    print("\n" + "=" * 78)
-    print("PLAY-TEST RESULTS  (base score = total minus bonuses and power-up points)")
-    print("=" * 78)
-    header = "%-7s %5s %5s %11s %9s %9s %9s" % (
-        "Lesson", "Runs", "Won", "AvgBase", "Min", "Max", "StDev",
+    width = 96
+    print("\n" + "=" * width)
+    print("PLAY-TEST RESULTS  (base score = total minus bonuses and power-up points;")
+    print("                    time = simulated in-game seconds to complete the level)")
+    print("=" * width)
+    header = "%-7s %5s %5s %11s %9s %9s %9s %8s %8s" % (
+        "Lesson", "Runs", "Won", "AvgBase", "Min", "Max", "StDev", "AvgTime", "MaxTime",
     )
     print(header)
-    print("-" * 78)
+    print("-" * width)
     for row in results:
         print(
-            "%-7d %5d %5d %11.1f %9d %9d %9.1f"
+            "%-7d %5d %5d %11.1f %9d %9d %9.1f %7.1fs %7.1fs"
             % (
                 row["lesson_number"],
                 row["runs"],
@@ -111,9 +149,11 @@ def _print_table(results):
                 row["min_base_score"],
                 row["max_base_score"],
                 row["stdev_base_score"],
+                row["avg_time_ms"] / 1000.0,
+                row["max_time_ms"] / 1000.0,
             )
         )
-    print("=" * 78)
+    print("=" * width)
 
 
 def _results_dir(base_dir):
@@ -145,13 +185,15 @@ def _write_results(base_dir, results, runs_per_level, stamp):
         writer = csv.writer(handle)
         writer.writerow(
             ["lesson_number", "runs", "won", "timed_out",
-             "avg_base_score", "min_base_score", "max_base_score", "stdev_base_score"]
+             "avg_base_score", "min_base_score", "max_base_score", "stdev_base_score",
+             "avg_time_ms", "min_time_ms", "max_time_ms"]
         )
         for row in results:
             writer.writerow(
                 [row["lesson_number"], row["runs"], row["won"], row["timed_out"],
                  row["avg_base_score"], row["min_base_score"],
-                 row["max_base_score"], row["stdev_base_score"]]
+                 row["max_base_score"], row["stdev_base_score"],
+                 row["avg_time_ms"], row["min_time_ms"], row["max_time_ms"]]
             )
 
     return {"json": json_path, "csv": csv_path}
@@ -171,6 +213,7 @@ def run(screen, clock, base_dir, runs_per_level=RUNS_PER_LEVEL):
     results = []
     for number, _keys, *_rest in LESSON_PROGRESS:
         base_scores = []
+        times_ms = []
         won = 0
         timed_out = 0
         valid_keys = learned_keys_through(number)
@@ -184,9 +227,10 @@ def run(screen, clock, base_dir, runs_per_level=RUNS_PER_LEVEL):
                 _make_test_player(),
             )
             base_scores.append(outcome["base_score"])
+            times_ms.append(outcome["level_time_ms"])
             won += 1 if outcome["won"] else 0
             timed_out += 1 if outcome["timed_out"] else 0
-        summary = _summarize(number, base_scores, won, timed_out, runs_per_level)
+        summary = _summarize(number, base_scores, times_ms, won, timed_out, runs_per_level)
         results.append(summary)
         _log_progress(summary)
 

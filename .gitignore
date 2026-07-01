@@ -1,6 +1,10 @@
 # Release
 releases/*
 
+# --play_tests benchmark output
+play_test_results/
+src/play_test_results/
+
 # Local save/config/cache data
 players.json
 type_fighter_game_config.json

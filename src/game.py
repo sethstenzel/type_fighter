@@ -2472,7 +2472,7 @@ def main():
         # Developer benchmark: headlessly autoplay every level and report
         # average base scores, then exit without entering the menu.
         try:
-            play_tests.run(screen, clock, BASE_DIR)
+            play_tests.run(screen, clock, BASE_DIR, runs_per_level=play_tests.resolve_runs(sys.argv))
         finally:
             logger.info("Type Fighter play-tests complete; shutting down")
             pygame.quit()
