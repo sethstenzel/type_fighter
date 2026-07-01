@@ -28,6 +28,8 @@ from lessons.mission_engine import (
     draw_star_field,
     update_star_field,
 )
+from lessons.secret_level import run_secret_level
+import secret_levels
 import player_limits
 import player_storage_sqlite
 from game_config import (
@@ -88,7 +90,7 @@ MUTED_TEXT = (138, 150, 178)
 ACCENT = (72, 209, 204)
 LOCKED_SELECTED = (245, 203, 92)
 MENU_WHEEL_SCROLL_COOLDOWN_MS = 90
-NAV_REPEAT_DELAY_MS = 100       # hold-to-repeat: delay before the first auto-repeat
+NAV_REPEAT_DELAY_MS = 1000      # hold-to-repeat: 1s delay before the first auto-repeat
 NAV_REPEAT_INTERVAL_MS = 100    # hold-to-repeat: ~10 moves per second while held
 STARTING_LIVES = 3
 PLAYER_SHIELD_MAX_CHARGES = 3
@@ -645,6 +647,25 @@ def run_lesson(screen, clock, lesson, player):
 
 def run_lesson_from_menu(screen, clock, lesson, player):
     result = run_lesson(screen, clock, lesson, player)
+    if result != "quit":
+        ensure_menu_music()
+    return result
+
+
+def maybe_run_secret_level(screen, clock, lesson, player):
+    """Launch a secret level if Shift is held and one is armed for this lesson.
+
+    Returns the level's result string ("won"/"menu"/"quit") when it runs, or
+    None when this should fall through to launching the normal mission.
+    """
+    if not (pygame.key.get_mods() & pygame.KMOD_SHIFT):
+        return None
+    level = secret_levels.available_for_lesson(lesson["number"])
+    if level is None:
+        return None
+    play_button_press()
+    stop_menu_music()
+    result = run_secret_level(screen, clock, BASE_DIR, level, player)
     if result != "quit":
         ensure_menu_music()
     return result
@@ -2078,9 +2099,9 @@ def draw_lesson_badges(screen, card_rect, lesson_number, player, font):
         badges.append(("H", "high_scorer_badge.png", (116, 211, 255), (208, 240, 255), (6, 28, 42)))
     if lesson_number in set(normalize_lesson_number_list(player.get("quick_lessons", []))):
         badges.append(("D", "quick_defender_badge.png", (88, 214, 141), (200, 245, 214), (6, 40, 22)))
-    radius = 15
+    radius = 18
     image_size = int(radius * 2.6)
-    cx = card_rect.right - 34
+    cx = card_rect.right - 41
     for letter, image_name, fill, edge, text_color in badges:
         center = (cx, card_rect.centery)
         image = badge_image(image_name, image_size)
@@ -2094,7 +2115,7 @@ def draw_lesson_badges(screen, card_rect, lesson_number, player, font):
             label_rect.centerx += 1
             label_rect.centery += 1
             screen.blit(label, label_rect)
-        cx -= 40
+        cx -= 48
 
 
 def menu_loop(screen, clock, players, player):
@@ -2190,6 +2211,13 @@ def menu_loop(screen, clock, players, player):
                     navigate(-1)
                 if event.key in (pygame.K_RETURN, pygame.K_SPACE):
                     if selected < unlocked_count:
+                        secret_result = maybe_run_secret_level(screen, clock, LESSONS[selected], player)
+                        if secret_result is not None:
+                            save_players(players)
+                            if secret_result == "quit":
+                                return "quit"
+                            pygame.event.clear((pygame.KEYDOWN, pygame.KEYUP, pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP))
+                            continue
                         play_button_press()
                         completed_index = selected
                         lesson_number = LESSONS[completed_index]["number"]
@@ -2235,6 +2263,13 @@ def menu_loop(screen, clock, players, player):
                     if rect.collidepoint(event.pos):
                         selected = index
                         if index < unlocked_count:
+                            secret_result = maybe_run_secret_level(screen, clock, LESSONS[index], player)
+                            if secret_result is not None:
+                                save_players(players)
+                                if secret_result == "quit":
+                                    return "quit"
+                                pygame.event.clear((pygame.KEYDOWN, pygame.KEYUP, pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP))
+                                break
                             play_button_press()
                             lesson_number = LESSONS[index]["number"]
                             was_completed = lesson_number in set(player.get("completed_lessons", []))
@@ -2414,6 +2449,9 @@ def main():
     enabled_cheats, unknown_cheats = cheats.enable_from_argv(sys.argv)
     if enabled_cheats:
         logger.warning("CHEATS ENABLED: {}", ", ".join(sorted(enabled_cheats)))
+    armed_secret_level = secret_levels.arm_from_argv(sys.argv)
+    if armed_secret_level is not None:
+        logger.warning("SECRET LEVEL ARMED: {} (Shift+select mission one to play)", armed_secret_level)
     if unknown_cheats:
         logger.warning("Unknown cheats ignored: {}", ", ".join(unknown_cheats))
     set_windows_app_id()

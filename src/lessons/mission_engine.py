@@ -3631,6 +3631,125 @@ class MissionEngine:
                 shot.target.incoming_defense_damage = max(0, shot.target.incoming_defense_damage - 1)
                 self.defense_shots.remove(shot)
 
+    def _update_bullets(self, now, dt):
+        for bullet in self.bullets[:]:
+            bullet.rotation = (bullet.rotation + math.tau * SHOT_ROTATIONS_PER_SECOND * dt) % math.tau
+            if bullet.target not in self.drones:
+                bullet.target = None
+                add_shot_trail(self.shot_trails, bullet, now)
+                bullet.pos += bullet.vel * dt
+                if bullet_is_offscreen(bullet, self.screen):
+                    self.bullets.remove(bullet)
+                continue
+
+            if bullet.target is None:
+                add_shot_trail(self.shot_trails, bullet, now)
+                bullet.pos += bullet.vel * dt
+                if bullet_is_offscreen(bullet, self.screen):
+                    self.bullets.remove(bullet)
+                continue
+
+            target_vector = bullet.target.pos - bullet.pos
+            if target_vector.length_squared() <= (bullet.target.radius + 7) ** 2:
+                bullet.target.incoming_damage = max(0, bullet.target.incoming_damage - 1)
+                bullet.target.hp -= 1
+                self.bullets.remove(bullet)
+                if not bullet.target.is_mega:
+                    self.score += DRONE_HIT_SCORE
+                if bullet.target.hp > 0 and not bullet.target.is_mega and bullet.target in self.drones:
+                    hit_drone = bullet.target
+                    self.drones.remove(hit_drone)
+                    children = split_regular_drone(self.drones, hit_drone)
+                    self._retarget_split_shots(hit_drone, children)
+                    play_sound(self.split_sound)
+                    continue
+                if bullet.target.hp <= 0 and bullet.target in self.drones:
+                    pos = bullet.target.pos.copy()
+                    counts_for_level = drone_counts_for_level(bullet.target)
+                    self.drones.remove(bullet.target)
+                    if counts_for_level:
+                        self.destroyed += bullet.target.level_value
+                    if bullet.target.is_mega:
+                        self.score += MINI_BOSS_SCORE
+                    explode(self.particles, pos)
+                    play_sound(self.explosion_sound)
+                continue
+
+            if target_vector.length_squared() > 0:
+                bullet.vel = target_vector.normalize() * 650
+            add_shot_trail(self.shot_trails, bullet, now)
+            bullet.pos += bullet.vel * dt
+
+    def _update_mega_shots(self, now, dt):
+        for mega_shot in self.mega_shots[:]:
+            mega_shot.rotation = (mega_shot.rotation + math.tau * SHOT_ROTATIONS_PER_SECOND * dt) % math.tau
+            if mega_shot.target is not None and not target_is_available(
+                mega_shot.target, self.drones, self.final_bosses
+            ):
+                mega_shot.target = None
+
+            if mega_shot.target is None:
+                add_shot_trail(self.shot_trails, mega_shot, now, 0.5625)
+                mega_shot.pos += mega_shot.vel * dt
+                if bullet_is_offscreen(mega_shot, self.screen):
+                    self.mega_shots.remove(mega_shot)
+                continue
+
+            target_vector = mega_shot.target.pos - mega_shot.pos
+            target_radius = getattr(mega_shot.target, "radius", 26)
+            if target_vector.length_squared() <= (target_radius + mega_shot.radius) ** 2:
+                target = mega_shot.target
+                self.mega_shots.remove(mega_shot)
+                if isinstance(target, FinalBoss):
+                    if target.shield > 0:
+                        if mega_shot.charge_level >= MEGA_SHIELD_MIN_LEVEL:
+                            target.shield -= 1
+                            target.shield_down_since = now if target.shield == 0 else None
+                            target.next_shield_recharge_time = None
+                            explode(self.particles, target.pos, 12)
+                            play_sound(self.explosion_sound)
+                    elif mega_shot.charge_level >= MEGA_FINAL_KILL_LEVEL:
+                        result = self._complete_final_boss(target, now)
+                        if result is not None:
+                            return result
+                    else:
+                        target.next_shot_time = now + FINAL_BOSS_ATTACK_INTERVAL_MS
+                    continue
+
+                if isinstance(target, Drone) and target in self.drones:
+                    damage = mega_damage_for_target(target, mega_shot.charge_level)
+                    hp_before = target.hp
+                    target.incoming_damage = max(0, target.incoming_damage - damage)
+                    target.hp -= damage
+                    if target.hp > 0 and not target.is_mega:
+                        self.score += DRONE_HIT_SCORE * max(1, damage)
+                        self.drones.remove(target)
+                        children = split_regular_drone(self.drones, target)
+                        self._retarget_split_shots(target, children)
+                        play_sound(self.split_sound)
+                    elif target.hp <= 0:
+                        pos = target.pos.copy()
+                        counts_for_level = drone_counts_for_level(target)
+                        self.drones.remove(target)
+                        if counts_for_level:
+                            self.destroyed += target.level_value
+                        if target.is_mega:
+                            bonus = MINI_BOSS_MEGA_BONUS
+                            self.score += MINI_BOSS_SCORE + bonus
+                        else:
+                            bonus = mega_kill_bonus(target.max_hp)
+                            self.score += regular_drone_clear_score(hp_before) + bonus
+                        self.bonus_points += bonus
+                        explode(self.particles, pos)
+                        play_sound(self.explosion_sound)
+                    continue
+
+            if target_vector.length_squared() > 0:
+                mega_shot.vel = target_vector.normalize() * mega_shot_speed(mega_shot.charge_level)
+            add_shot_trail(self.shot_trails, mega_shot, now, 0.5625)
+            mega_shot.pos += mega_shot.vel * dt
+        return None
+
     def run(self):
         briefing_result = self._run_mission_briefing()
         if briefing_result == "quit":
@@ -3772,121 +3891,10 @@ class MissionEngine:
                 return result
             self._update_defense_shots(dt)
 
-            for bullet in self.bullets[:]:
-                bullet.rotation = (bullet.rotation + math.tau * SHOT_ROTATIONS_PER_SECOND * dt) % math.tau
-                if bullet.target not in self.drones:
-                    bullet.target = None
-                    add_shot_trail(self.shot_trails, bullet, now)
-                    bullet.pos += bullet.vel * dt
-                    if bullet_is_offscreen(bullet, self.screen):
-                        self.bullets.remove(bullet)
-                    continue
-
-                if bullet.target is None:
-                    add_shot_trail(self.shot_trails, bullet, now)
-                    bullet.pos += bullet.vel * dt
-                    if bullet_is_offscreen(bullet, self.screen):
-                        self.bullets.remove(bullet)
-                    continue
-
-                target_vector = bullet.target.pos - bullet.pos
-                if target_vector.length_squared() <= (bullet.target.radius + 7) ** 2:
-                    bullet.target.incoming_damage = max(0, bullet.target.incoming_damage - 1)
-                    bullet.target.hp -= 1
-                    self.bullets.remove(bullet)
-                    if not bullet.target.is_mega:
-                        self.score += DRONE_HIT_SCORE
-                    if bullet.target.hp > 0 and not bullet.target.is_mega and bullet.target in self.drones:
-                        hit_drone = bullet.target
-                        self.drones.remove(hit_drone)
-                        children = split_regular_drone(self.drones, hit_drone)
-                        self._retarget_split_shots(hit_drone, children)
-                        play_sound(self.split_sound)
-                        continue
-                    if bullet.target.hp <= 0 and bullet.target in self.drones:
-                        pos = bullet.target.pos.copy()
-                        counts_for_level = drone_counts_for_level(bullet.target)
-                        self.drones.remove(bullet.target)
-                        if counts_for_level:
-                            self.destroyed += bullet.target.level_value
-                        if bullet.target.is_mega:
-                            self.score += MINI_BOSS_SCORE
-                        explode(self.particles, pos)
-                        play_sound(self.explosion_sound)
-                    continue
-
-                if target_vector.length_squared() > 0:
-                    bullet.vel = target_vector.normalize() * 650
-                add_shot_trail(self.shot_trails, bullet, now)
-                bullet.pos += bullet.vel * dt
-
-            for mega_shot in self.mega_shots[:]:
-                mega_shot.rotation = (mega_shot.rotation + math.tau * SHOT_ROTATIONS_PER_SECOND * dt) % math.tau
-                if mega_shot.target is not None and not target_is_available(
-                    mega_shot.target, self.drones, self.final_bosses
-                ):
-                    mega_shot.target = None
-
-                if mega_shot.target is None:
-                    add_shot_trail(self.shot_trails, mega_shot, now, 0.5625)
-                    mega_shot.pos += mega_shot.vel * dt
-                    if bullet_is_offscreen(mega_shot, self.screen):
-                        self.mega_shots.remove(mega_shot)
-                    continue
-
-                target_vector = mega_shot.target.pos - mega_shot.pos
-                target_radius = getattr(mega_shot.target, "radius", 26)
-                if target_vector.length_squared() <= (target_radius + mega_shot.radius) ** 2:
-                    target = mega_shot.target
-                    self.mega_shots.remove(mega_shot)
-                    if isinstance(target, FinalBoss):
-                        if target.shield > 0:
-                            if mega_shot.charge_level >= MEGA_SHIELD_MIN_LEVEL:
-                                target.shield -= 1
-                                target.shield_down_since = now if target.shield == 0 else None
-                                target.next_shield_recharge_time = None
-                                explode(self.particles, target.pos, 12)
-                                play_sound(self.explosion_sound)
-                        elif mega_shot.charge_level >= MEGA_FINAL_KILL_LEVEL:
-                            result = self._complete_final_boss(target, now)
-                            if result is not None:
-                                return result
-                        else:
-                            target.next_shot_time = now + FINAL_BOSS_ATTACK_INTERVAL_MS
-                        continue
-
-                    if isinstance(target, Drone) and target in self.drones:
-                        damage = mega_damage_for_target(target, mega_shot.charge_level)
-                        hp_before = target.hp
-                        target.incoming_damage = max(0, target.incoming_damage - damage)
-                        target.hp -= damage
-                        if target.hp > 0 and not target.is_mega:
-                            self.score += DRONE_HIT_SCORE * max(1, damage)
-                            self.drones.remove(target)
-                            children = split_regular_drone(self.drones, target)
-                            self._retarget_split_shots(target, children)
-                            play_sound(self.split_sound)
-                        elif target.hp <= 0:
-                            pos = target.pos.copy()
-                            counts_for_level = drone_counts_for_level(target)
-                            self.drones.remove(target)
-                            if counts_for_level:
-                                self.destroyed += target.level_value
-                            if target.is_mega:
-                                bonus = MINI_BOSS_MEGA_BONUS
-                                self.score += MINI_BOSS_SCORE + bonus
-                            else:
-                                bonus = mega_kill_bonus(target.max_hp)
-                                self.score += regular_drone_clear_score(hp_before) + bonus
-                            self.bonus_points += bonus
-                            explode(self.particles, pos)
-                            play_sound(self.explosion_sound)
-                        continue
-
-                if target_vector.length_squared() > 0:
-                    mega_shot.vel = target_vector.normalize() * mega_shot_speed(mega_shot.charge_level)
-                add_shot_trail(self.shot_trails, mega_shot, now, 0.5625)
-                mega_shot.pos += mega_shot.vel * dt
+            self._update_bullets(now, dt)
+            result = self._update_mega_shots(now, dt)
+            if result is not None:
+                return result
 
             self._update_particles(dt)
             self._update_shot_trails(dt)

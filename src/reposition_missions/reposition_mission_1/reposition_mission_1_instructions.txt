@@ -1,0 +1,34 @@
+OBJECTIVE
+
+Reposition your pod to the green target zone, then hold your pod inside it for
+10 seconds without leaving. The target starts far off screen to the left --
+follow the blue arrow on your pod's orbit; it always points the way.
+
+MOVING THE POD (hold Shift)
+
+You fly like a real ship: each key fires the thruster on that side, and the pod
+is pushed the opposite way.
+
+  Shift + F  -  fire the RIGHT thruster  ->  pod moves LEFT (toward the target)
+  Shift + S  -  fire the LEFT thruster   ->  pod moves RIGHT
+  Shift + D  -  fire the BOTTOM thruster ->  pod moves UP
+  Shift + E  -  fire the TOP thruster    ->  pod moves DOWN
+
+Your pod keeps its momentum -- thrust only changes your speed, it never bleeds
+off on its own. The longer you hold a thrust, the faster you go, up to the pod's
+top speed.
+
+THRUST IS LIMITED (the orange gauge)
+
+Every second of thrust burns one charge from your thrust bank. Reaching top
+speed drains it completely. When you stop thrusting, the bank waits 1 second,
+then refills one charge per second. Spend it wisely: if you burn everything
+racing in, you will have nothing left to brake with and will overshoot the
+target -- then you must drift back and try again.
+
+STAYING ALIVE
+
+Type the letter on a drone to fire your turret at it. Your shields, defense
+drones, mega shot, and time stop all work here if you have them unlocked.
+
+Reach the target and hold for 10 seconds. You have 3 minutes.

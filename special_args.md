@@ -1,3 +1,13 @@
+# Special Command-Line Arguments
+
+Developer/testing arguments for Type Fighter, passed on the command line when
+launching the game. Two families are documented here:
+
+- [`--cheats`](#cheats) — developer cheats.
+- [`--secret_level`](#secret-levels) — arm a hidden bonus level.
+
+---
+
 # Cheats
 
 Developer cheats for Type Fighter, enabled from the command line via the
@@ -58,3 +68,49 @@ logged as a warning at startup. Implementation lives in `src/cheats.py`.
   (no save change).
 - Cheats are intended for development/testing. They do not gate badges fairly
   (e.g. cheat 2 still counts hits, so it will not grant a no-damage perfect run).
+
+---
+
+# Secret Levels
+
+Hidden bonus stages, armed from the command line via the `--secret_level` flag.
+Pass a **single level number**. Implementation lives in `src/secret_levels.py`
+(argument parsing) and `src/lessons/secret_level.py` (the level itself).
+
+## How to enable
+
+```bash
+# space form
+uv run python src/game.py --secret_level 1
+
+# equals form
+uv run python src/game.py --secret_level=1
+```
+
+Arming a secret level does **not** launch it directly. It only makes it
+reachable from the mission menu:
+
+1. Launch the game with `--secret_level 1` (a warning is logged confirming the
+   armed level).
+2. In the mission menu, **hold Shift** and select **training mission one**
+   (Enter/Space or click) — this launches the secret level instead of the normal
+   lesson 1 mission.
+
+Selecting mission one **without** Shift held still plays the normal lesson, and
+Shift+selecting any other mission does nothing special.
+
+## Available secret levels
+
+| # | Level | What it is |
+|---|-------|------------|
+| 1 | Reposition Mission 1 | Pilot the pod from the right side of the field to a goal zone far off screen to the left, then hold station inside the target for 10 continuous seconds. Thrust is a limited resource (the orange gauge) with real thruster physics — the pod is pushed opposite whichever thruster you fire (Shift+S/F left/right, Shift+E/D top/bottom). Your normal loadout (defense drones, shields, mega shot, time stop) works if unlocked. 3-minute time limit. |
+
+## Notes
+
+- Only the numbers listed above have an implementation. Passing an unimplemented
+  number (e.g. `--secret_level 2`) is accepted and logged, but nothing becomes
+  reachable — Shift+selecting mission one just plays the normal lesson.
+- Secret levels are reached only through **training mission one**; the armed
+  number does not map to any other menu entry.
+- Completing a secret level shows its own summary screen but does **not** mark
+  lesson 1 complete or alter save progress.

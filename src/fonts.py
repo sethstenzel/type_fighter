@@ -1,8 +1,12 @@
 """Central game font loader.
 
-Loads the bundled OTF (gfx/TypeLightSans.otf) and caches Font objects by
+Loads the bundled OTF (gfx/game_font_1.otf) and caches Font objects by
 (size, bold). Falls back to the system Arial if the font can't be loaded, so the
 game still renders if the asset is missing.
+
+Bold is intentionally disabled: the game font is always rendered at its regular
+weight. The `bold` argument is kept for call-site compatibility but no longer
+applies synthetic bolding.
 
 The font lives in gfx/, which the build bundles via --include-data-dir, so it is
 packaged alongside the executable. The path is resolved the same frozen/dev way
@@ -26,7 +30,7 @@ def _base_dir():
     return Path(__file__).resolve().parent
 
 
-GAME_FONT_PATH = _base_dir() / "gfx" / "TypeLightSans.otf"
+GAME_FONT_PATH = _base_dir() / "gfx" / "game_font_1.otf"
 
 _font_cache = {}
 
@@ -41,10 +45,11 @@ def get_font(size, bold=False):
     try:
         if GAME_FONT_PATH.exists():
             font = pygame.font.Font(str(GAME_FONT_PATH), size)
-            font.set_bold(bool(bold))
+            # Bold is intentionally never applied -- always regular weight.
+            font.set_bold(False)
     except (OSError, pygame.error):
         font = None
     if font is None:
-        font = pygame.font.SysFont("arial", size, bold=bool(bold))
+        font = pygame.font.SysFont("arial", size, bold=False)
     _font_cache[key] = font
     return font
