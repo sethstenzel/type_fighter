@@ -668,6 +668,20 @@ def draw_scrollable_text(surface, text, font, color, rect, scroll_y, line_spacin
 SHIFTED_SYMBOL_START_LESSON = 27
 
 
+SHIFTED_KEY_CHARS = frozenset('~!@#$%^&*()_+{}|:"<>?')
+
+
+def key_requires_shift(key):
+    """True if typing `key` on a US keyboard needs Shift held.
+
+    Covers shifted symbols (e.g. ! @ : ? _ +) and uppercase letters. Multi-char
+    key labels (enter, space, shift, ...) and unshifted keys return False.
+    """
+    if not isinstance(key, str) or len(key) != 1:
+        return False
+    return key in SHIFTED_KEY_CHARS or key.isupper()
+
+
 def event_to_lesson_key(event, lesson_number=1):
     if lesson_number >= SHIFTED_SYMBOL_START_LESSON and event.key in (pygame.K_LSHIFT, pygame.K_RSHIFT):
         return None
@@ -1408,14 +1422,22 @@ def drone_color(drone):
 
 def drone_image(drone, drone_images):
     if drone.is_mega:
-        return drone_images.get("semi_boss")
-    if drone.is_boss_shot:
-        return drone_images.get("yellow")
-    if drone.max_hp >= 3:
-        return drone_images.get("red")
-    if drone.max_hp == 2:
-        return drone_images.get("orange")
-    return drone_images.get("yellow")
+        base = "semi_boss"
+    elif drone.is_boss_shot:
+        base = "yellow"
+    elif drone.max_hp >= 3:
+        base = "red"
+    elif drone.max_hp == 2:
+        base = "orange"
+    else:
+        base = "yellow"
+    # Drones whose key needs Shift (symbols, etc.) use the "_shifted" art when
+    # it exists; otherwise fall back to the regular colored drone.
+    if key_requires_shift(getattr(drone, "letter", "")):
+        shifted = drone_images.get(base + "_shifted")
+        if shifted is not None:
+            return shifted
+    return drone_images.get(base)
 
 
 def scaled_drone_image(drone, drone_images, image_cache):
@@ -2479,6 +2501,12 @@ class MissionEngine:
             "orange": load_image(self.drone_gfx_dir / "orange_drone.png"),
             "red": load_image(self.drone_gfx_dir / "red_drone.png"),
             "semi_boss": load_image(self.drone_gfx_dir / "semi-boss.png"),
+            # Optional variants for Shift-requiring keys; None (missing file)
+            # falls back to the regular colored drone in drone_image().
+            "yellow_shifted": load_image(self.drone_gfx_dir / "yellow_drone_shifted.png"),
+            "orange_shifted": load_image(self.drone_gfx_dir / "orange_drone_shifted.png"),
+            "red_shifted": load_image(self.drone_gfx_dir / "red_drone_shifted.png"),
+            "semi_boss_shifted": load_image(self.drone_gfx_dir / "semi-boss_shifted.png"),
         }
         self.drone_image_cache = {}
 
