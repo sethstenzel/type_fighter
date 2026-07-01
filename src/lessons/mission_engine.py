@@ -1269,6 +1269,26 @@ def high_score_goal(drone_target, power_up_count, final_boss_value, semi_boss_co
     )
 
 
+# Per-lesson high-score goals, calibrated to the maximum base score the
+# auto-fire bot reached over a 30-run --play_tests benchmark (see play_tests.py).
+# Lessons not listed here fall back to the high_score_goal() formula.
+HIGH_SCORE_GOALS = {
+    1: 9400, 2: 8600, 3: 12300, 4: 11800, 5: 15200, 6: 15500,
+    7: 14700, 8: 15200, 9: 16000, 10: 16200, 11: 17500, 12: 18400,
+    13: 21300, 14: 18600, 15: 17700, 16: 19700, 17: 17900, 18: 18700,
+    19: 20000, 20: 18600, 21: 20300, 22: 19200, 23: 20300, 24: 19700,
+    25: 19900, 26: 20800, 27: 22100, 28: 20900, 29: 20700, 30: 22000,
+    31: 21200, 32: 22200, 33: 24900, 34: 22200, 35: 22700, 36: 22500,
+}
+
+
+def high_score_goal_for_lesson(lesson_number, drone_target, power_up_count, final_boss_value, semi_boss_count):
+    """Calibrated per-lesson goal, falling back to the computed formula."""
+    if lesson_number in HIGH_SCORE_GOALS:
+        return HIGH_SCORE_GOALS[lesson_number]
+    return high_score_goal(drone_target, power_up_count, final_boss_value, semi_boss_count)
+
+
 # --- Level timing (see issue #16) -------------------------------------------
 DEFAULT_QUICK_DEFENDER_MS = 60000   # placeholder; not yet tuned per level
 QUICK_DEFENDER_TIME_GOALS = {}      # {lesson_number: milliseconds}; edit to tune
@@ -2485,7 +2505,8 @@ class MissionEngine:
         self.bonus_points = 0
         self.mission_start_ticks = None
         self.level_time_ms = 0
-        self.high_score_goal = high_score_goal(
+        self.high_score_goal = high_score_goal_for_lesson(
+            self.lesson_number,
             self.drone_target,
             MAX_LIFE_POWER_UPS_PER_MISSION,
             FINAL_BOSS_SCORE if self.final_boss_count > 0 else 0,
